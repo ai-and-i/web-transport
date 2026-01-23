@@ -1,5 +1,6 @@
 # Example
 
+## Simple Echo
 A simple [server](echo-server.rs) and [client](echo-client.rs).
 
 There's also advanced examples [server](echo-server-advanced.rs) and [client](echo-client-advanced.rs) that construct the QUIC connection manually.
