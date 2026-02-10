@@ -15,72 +15,76 @@ const MAX_MESSAGE_SIZE: usize = 1024;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Capsule {
     CloseWebTransportSession { code: u32, reason: String },
+    Grease,
     Unknown { typ: VarInt, payload: Bytes },
 }
 
 impl Capsule {
     pub fn decode<B: Buf>(buf: &mut B) -> Result<Self, CapsuleError> {
-        loop {
-            let typ = VarInt::decode(buf)?;
-            let length = VarInt::decode(buf)?;
+        let typ = VarInt::decode(buf)?;
+        let length = VarInt::decode(buf)?;
 
-            let mut payload = buf.take(length.into_inner() as usize);
-            if payload.remaining() > MAX_MESSAGE_SIZE {
-                return Err(CapsuleError::MessageTooLong);
-            }
+        let mut payload = buf.take(length.into_inner() as usize);
+        if payload.remaining() > MAX_MESSAGE_SIZE {
+            return Err(CapsuleError::MessageTooLong);
+        }
 
-            if payload.remaining() < payload.limit() {
-                return Err(CapsuleError::UnexpectedEnd);
-            }
+        if payload.remaining() < payload.limit() {
+            return Err(CapsuleError::UnexpectedEnd);
+        }
 
-            match typ.into_inner() {
-                CLOSE_WEBTRANSPORT_SESSION_TYPE => {
-                    if payload.remaining() < 4 {
-                        return Err(CapsuleError::UnexpectedEnd);
-                    }
-
-                    let error_code = payload.get_u32();
-
-                    let message_len = payload.remaining();
-                    if message_len > MAX_MESSAGE_SIZE {
-                        return Err(CapsuleError::MessageTooLong);
-                    }
-
-                    let mut message_bytes = vec![0u8; message_len];
-                    payload.copy_to_slice(&mut message_bytes);
-
-                    let error_message =
-                        String::from_utf8(message_bytes).map_err(|_| CapsuleError::InvalidUtf8)?;
-
-                    return Ok(Self::CloseWebTransportSession {
-                        code: error_code,
-                        reason: error_message,
-                    });
+        match typ.into_inner() {
+            CLOSE_WEBTRANSPORT_SESSION_TYPE => {
+                if payload.remaining() < 4 {
+                    return Err(CapsuleError::UnexpectedEnd);
                 }
-                t if is_grease(t) => continue,
-                _ => {
-                    // Unknown capsule type - store it
-                    let mut payload_bytes = vec![0u8; payload.remaining()];
-                    payload.copy_to_slice(&mut payload_bytes);
-                    return Ok(Self::Unknown {
-                        typ,
-                        payload: Bytes::from(payload_bytes),
-                    });
+
+                let error_code = payload.get_u32();
+
+                let message_len = payload.remaining();
+                if message_len > MAX_MESSAGE_SIZE {
+                    return Err(CapsuleError::MessageTooLong);
                 }
+
+                let mut message_bytes = vec![0u8; message_len];
+                payload.copy_to_slice(&mut message_bytes);
+
+                let error_message =
+                    String::from_utf8(message_bytes).map_err(|_| CapsuleError::InvalidUtf8)?;
+
+                Ok(Self::CloseWebTransportSession {
+                    code: error_code,
+                    reason: error_message,
+                })
+            }
+            t if is_grease(t) => {
+                payload.advance(payload.remaining());
+                Ok(Self::Grease)
+            }
+            _ => {
+                let mut payload_bytes = vec![0u8; payload.remaining()];
+                payload.copy_to_slice(&mut payload_bytes);
+                Ok(Self::Unknown {
+                    typ,
+                    payload: Bytes::from(payload_bytes),
+                })
             }
         }
     }
 
-    pub async fn read<S: AsyncRead + Unpin>(stream: &mut S) -> Result<Self, CapsuleError> {
+    pub async fn read<S: AsyncRead + Unpin>(stream: &mut S) -> Result<Option<Self>, CapsuleError> {
         let mut buf = Vec::new();
         loop {
             if stream.read_buf(&mut buf).await? == 0 {
+                if buf.is_empty() {
+                    return Ok(None);
+                }
                 return Err(CapsuleError::UnexpectedEnd);
             }
 
-            let mut limit = std::io::Cursor::new(&buf);
-            match Self::decode(&mut limit) {
-                Ok(capsule) => return Ok(capsule),
+            let mut cursor = std::io::Cursor::new(&buf);
+            match Self::decode(&mut cursor) {
+                Ok(capsule) => return Ok(Some(capsule)),
                 Err(CapsuleError::UnexpectedEnd) => continue,
                 Err(e) => return Err(e),
             }
@@ -108,6 +112,7 @@ impl Capsule {
                 // Encode the error message
                 buf.put_slice(error_message.as_bytes());
             }
+            Self::Grease => {}
             Self::Unknown { typ, payload } => {
                 // Encode the capsule type
                 typ.encode(buf);
@@ -129,13 +134,14 @@ impl Capsule {
     }
 }
 
+// RFC 9297 Section 5.4: Capsule types of the form 0x29 * N + 0x17
 fn is_grease(val: u64) -> bool {
-    if val < 0x21 {
+    if val < 0x17 {
         return false;
     }
     #[allow(unknown_lints, clippy::manual_is_multiple_of)]
     {
-        (val - 0x21) % 0x1f == 0
+        (val - 0x17) % 0x29 == 0
     }
 }
 
