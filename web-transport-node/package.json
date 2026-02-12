@@ -1,0 +1,42 @@
+{
+	"name": "@moq/web-transport",
+	"author": "Luke Curley <kixelated@gmail.com>",
+	"version": "0.1.0",
+	"description": "WebTransport polyfill using web-transport-quinn",
+	"type": "module",
+	"license": "(MIT OR Apache-2.0)",
+	"repository": "github:moq-dev/web-transport",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"types": "./src/index.ts",
+	"files": [
+		"./src",
+		"./native",
+		"README.md",
+		"LICENSE-APACHE",
+		"LICENSE-MIT"
+	],
+	"scripts": {
+		"build:native": "napi build --cargo-cwd native",
+		"build": "rimraf dist && tsc && tsx scripts/package.ts",
+		"check": "tsc --noEmit"
+	},
+	"devDependencies": {
+		"@napi-rs/cli": "^2.18.4",
+		"@types/node": "^24.3.0",
+		"rimraf": "^6.0.1",
+		"tsx": "^4.20.5",
+		"typescript": "^5.9.2"
+	},
+	"keywords": [
+		"webtransport",
+		"quic",
+		"http3",
+		"polyfill",
+		"quinn"
+	],
+	"napi": {
+		"name": "web_transport_node"
+	}
+}
