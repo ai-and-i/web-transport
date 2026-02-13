@@ -316,6 +316,14 @@ impl Session {
     pub fn response(&self) -> &ConnectResponse {
         &self.response
     }
+
+    /// Return connection-level statistics.
+    pub fn stats(&self) -> SessionStats {
+        SessionStats {
+            stats: self.conn.stats(),
+            rtt: self.conn.rtt(),
+        }
+    }
 }
 
 impl Deref for Session {
@@ -527,6 +535,50 @@ impl SessionAccept {
     }
 }
 
+pub struct SessionStats {
+    stats: quinn::ConnectionStats,
+    rtt: std::time::Duration,
+}
+
+impl web_transport_trait::Stats for SessionStats {
+    fn bytes_sent(&self) -> Option<u64> {
+        Some(self.stats.udp_tx.bytes)
+    }
+
+    fn bytes_received(&self) -> Option<u64> {
+        Some(self.stats.udp_rx.bytes)
+    }
+
+    fn bytes_lost(&self) -> Option<u64> {
+        Some(self.stats.path.lost_bytes)
+    }
+
+    fn packets_sent(&self) -> Option<u64> {
+        Some(self.stats.udp_tx.datagrams)
+    }
+
+    fn packets_received(&self) -> Option<u64> {
+        Some(self.stats.udp_rx.datagrams)
+    }
+
+    fn packets_lost(&self) -> Option<u64> {
+        Some(self.stats.path.lost_packets)
+    }
+
+    fn rtt(&self) -> Option<std::time::Duration> {
+        Some(self.rtt)
+    }
+
+    fn estimated_send_rate(&self) -> Option<u64> {
+        let rtt_secs = self.rtt.as_secs_f64();
+        if self.stats.path.cwnd > 0 && rtt_secs > 0.0 {
+            Some((self.stats.path.cwnd as f64 * 8.0 / rtt_secs) as u64)
+        } else {
+            None
+        }
+    }
+}
+
 impl web_transport_trait::Session for Session {
     type SendStream = SendStream;
     type RecvStream = RecvStream;
@@ -570,5 +622,10 @@ impl web_transport_trait::Session for Session {
 
     fn protocol(&self) -> Option<&str> {
         self.response.protocol.as_deref()
+    }
+
+    #[allow(refining_impl_trait)]
+    fn stats(&self) -> SessionStats {
+        Self::stats(self)
     }
 }
