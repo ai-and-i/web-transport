@@ -107,9 +107,11 @@ impl ConnectRequest {
             return Err(ConnectError::UnexpectedFrame(typ));
         }
 
-        // We no longer return UnexpectedEnd because we know the buffer should be large enough.
+        Self::decode_headers(&mut data)
+    }
 
-        let headers = qpack::Headers::decode(&mut data)?;
+    fn decode_headers<B: Buf>(data: &mut B) -> Result<Self, ConnectError> {
+        let headers = qpack::Headers::decode(data)?;
 
         let scheme = match headers.get(":scheme") {
             Some("https") => "https",
@@ -149,19 +151,24 @@ impl ConnectRequest {
         Ok(Self { url, protocols })
     }
 
+    /// Read a CONNECT request from a stream, consuming only the exact bytes of the frame.
     pub async fn read<S: AsyncRead + Unpin>(stream: &mut S) -> Result<Self, ConnectError> {
-        let mut buf = Vec::new();
         loop {
-            if stream.read_buf(&mut buf).await? == 0 {
-                return Err(ConnectError::UnexpectedEnd);
+            let typ = Frame(VarInt::read(stream).await.map_err(|_| ConnectError::UnexpectedEnd)?);
+            let size = VarInt::read(stream).await.map_err(|_| ConnectError::UnexpectedEnd)?;
+
+            let mut payload = vec![0u8; size.into_inner() as usize];
+            stream.read_exact(&mut payload).await?;
+
+            if typ.is_grease() {
+                continue;
             }
 
-            let mut limit = std::io::Cursor::new(&buf);
-            match Self::decode(&mut limit) {
-                Ok(request) => return Ok(request),
-                Err(ConnectError::UnexpectedEnd) => continue,
-                Err(e) => return Err(e),
+            if typ != Frame::HEADERS {
+                return Err(ConnectError::UnexpectedFrame(typ));
             }
+
+            return Self::decode_headers(&mut payload.as_slice());
         }
     }
 
@@ -246,7 +253,11 @@ impl ConnectResponse {
             return Err(ConnectError::UnexpectedFrame(typ));
         }
 
-        let headers = qpack::Headers::decode(&mut data)?;
+        Self::decode_headers(&mut data)
+    }
+
+    fn decode_headers<B: Buf>(data: &mut B) -> Result<Self, ConnectError> {
+        let headers = qpack::Headers::decode(data)?;
 
         let status = match headers
             .get(":status")
@@ -268,19 +279,24 @@ impl ConnectResponse {
         Ok(Self { status, protocol })
     }
 
+    /// Read a CONNECT response from a stream, consuming only the exact bytes of the frame.
     pub async fn read<S: AsyncRead + Unpin>(stream: &mut S) -> Result<Self, ConnectError> {
-        let mut buf = Vec::new();
         loop {
-            if stream.read_buf(&mut buf).await? == 0 {
-                return Err(ConnectError::UnexpectedEnd);
+            let typ = Frame(VarInt::read(stream).await.map_err(|_| ConnectError::UnexpectedEnd)?);
+            let size = VarInt::read(stream).await.map_err(|_| ConnectError::UnexpectedEnd)?;
+
+            let mut payload = vec![0u8; size.into_inner() as usize];
+            stream.read_exact(&mut payload).await?;
+
+            if typ.is_grease() {
+                continue;
             }
 
-            let mut limit = std::io::Cursor::new(&buf);
-            match Self::decode(&mut limit) {
-                Ok(response) => return Ok(response),
-                Err(ConnectError::UnexpectedEnd) => continue,
-                Err(e) => return Err(e),
+            if typ != Frame::HEADERS {
+                return Err(ConnectError::UnexpectedFrame(typ));
             }
+
+            return Self::decode_headers(&mut payload.as_slice());
         }
     }
 
