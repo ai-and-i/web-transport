@@ -3,14 +3,13 @@ use std::sync::Arc;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-use crate::{VarInt, VarIntUnexpectedEnd};
+use crate::{VarInt, VarIntUnexpectedEnd, MAX_FRAME_SIZE};
 
 // The spec (draft-ietf-webtrans-http3-06) says the type is 0x2843, which would
 // varint-encode to 0x68 0x43. However, actual wire data shows 0x43 0x28 which
 // decodes to 808. There may be a discrepancy in implementations or specs.
 // Using 0x2843 as specified in the standard.
 const CLOSE_WEBTRANSPORT_SESSION_TYPE: u64 = 0x2843;
-const MAX_MESSAGE_SIZE: usize = 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Capsule {
@@ -27,7 +26,7 @@ impl Capsule {
         let mut payload = buf.take(length.into_inner() as usize);
 
         // Check declared length first - reject immediately if too large
-        if payload.limit() > MAX_MESSAGE_SIZE {
+        if payload.limit() > MAX_FRAME_SIZE as usize {
             return Err(CapsuleError::MessageTooLong);
         }
 
@@ -52,7 +51,7 @@ impl Capsule {
                 let error_code = payload.get_u32();
 
                 let message_len = payload.remaining();
-                if message_len > MAX_MESSAGE_SIZE {
+                if message_len > MAX_FRAME_SIZE as usize {
                     return Err(CapsuleError::MessageTooLong);
                 }
 
@@ -93,7 +92,7 @@ impl Capsule {
         let length = length.into_inner();
         let typ_val = typ.into_inner();
 
-        if length > MAX_MESSAGE_SIZE as u64 {
+        if length > MAX_FRAME_SIZE {
             return Err(CapsuleError::MessageTooLong);
         }
 
@@ -459,7 +458,9 @@ mod tests {
     async fn test_read_rejects_too_large() {
         let mut wire = Vec::new();
         VarInt::from_u64(0x2843).unwrap().encode(&mut wire); // type
-        VarInt::from_u32((MAX_MESSAGE_SIZE as u32) + 1).encode(&mut wire); // too large
+        VarInt::from_u64(MAX_FRAME_SIZE + 1)
+            .unwrap()
+            .encode(&mut wire); // too large
 
         let mut cursor = std::io::Cursor::new(wire);
         let err = Capsule::read(&mut cursor).await.unwrap_err();
