@@ -386,3 +386,132 @@ async fn read_from_cancelled_stream() {
     let result = result.unwrap();
     assert!(result.success, "{}", result.message);
 }
+
+// ---------------------------------------------------------------------------
+// Half-Close & Priority
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn bidi_stream_half_close_write_then_read() {
+    init_tracing();
+
+    let handler: ServerHandler = Box::new(|session| {
+        Box::pin(async move {
+            let (mut send, mut recv) = session.accept_bi().await.expect("accept_bi failed");
+            let data = recv
+                .read_to_end(64 * 1024)
+                .await
+                .expect("read_to_end failed");
+            // Double the data to make the half-close assertion unambiguous
+            let mut doubled = data.clone();
+            doubled.extend_from_slice(&data);
+            send.write_all(&doubled).await.expect("write_all failed");
+            send.finish().expect("finish failed");
+            let err = session.closed().await;
+            assert!(
+                matches!(
+                    err,
+                    SessionError::WebTransportError(WebTransportError::Closed(_, _))
+                ),
+                "expected WebTransportError::Closed, got {err}"
+            );
+        })
+    });
+
+    let harness = harness::setup(handler).await.unwrap();
+
+    let result = harness
+        .run_js(
+            r#"
+        const wt = await connectWebTransport();
+        const stream = await wt.createBidirectionalStream();
+        const writer = stream.writable.getWriter();
+        const reader = stream.readable.getReader();
+
+        await writer.write(new TextEncoder().encode("abc"));
+        await writer.close();
+
+        let received = "";
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            received += new TextDecoder().decode(value);
+        }
+        wt.close();
+        return {
+            success: received === "abcabc",
+            message: "received: " + received
+        };
+    "#,
+            TIMEOUT,
+        )
+        .await;
+
+    harness.teardown().await;
+    let result = result.unwrap();
+    assert!(result.success, "{}", result.message);
+}
+
+#[tokio::test]
+async fn bidi_stream_server_priority() {
+    init_tracing();
+
+    let handler: ServerHandler = Box::new(|session| {
+        Box::pin(async move {
+            for i in 0..3i32 {
+                let (mut send, _recv) = session.open_bi().await.expect("open_bi failed");
+                send.set_priority(i).expect("set_priority failed");
+                let msg = format!("prio{i}");
+                send.write_all(msg.as_bytes())
+                    .await
+                    .expect("write_all failed");
+                send.finish().expect("finish failed");
+            }
+            let err = session.closed().await;
+            assert!(
+                matches!(
+                    err,
+                    SessionError::WebTransportError(WebTransportError::Closed(_, _))
+                ),
+                "expected WebTransportError::Closed, got {err}"
+            );
+        })
+    });
+
+    let harness = harness::setup(handler).await.unwrap();
+
+    let result = harness
+        .run_js(
+            r#"
+        const wt = await connectWebTransport();
+        const reader = wt.incomingBidirectionalStreams.getReader();
+        const messages = [];
+        for (let i = 0; i < 3; i++) {
+            const { value: stream, done } = await reader.read();
+            if (done) break;
+            const sr = stream.readable.getReader();
+            let msg = "";
+            while (true) {
+                const { value, done } = await sr.read();
+                if (done) break;
+                msg += new TextDecoder().decode(value);
+            }
+            messages.push(msg);
+        }
+        messages.sort();
+        const expected = ["prio0", "prio1", "prio2"];
+        const ok = JSON.stringify(messages) === JSON.stringify(expected);
+        wt.close();
+        return {
+            success: ok,
+            message: "messages: " + JSON.stringify(messages)
+        };
+    "#,
+            TIMEOUT,
+        )
+        .await;
+
+    harness.teardown().await;
+    let result = result.unwrap();
+    assert!(result.success, "{}", result.message);
+}
