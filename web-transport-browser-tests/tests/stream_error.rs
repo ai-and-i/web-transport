@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use web_transport_browser_tests::harness;
 use web_transport_browser_tests::server::ServerHandler;
-use web_transport_quinn::{ReadError, SessionError, WebTransportError, WriteError};
+use web_transport_quinn::{quinn, ReadError, SessionError, WebTransportError, WriteError};
 
 mod common;
 use common::{init_tracing, TIMEOUT};
@@ -684,6 +684,374 @@ async fn server_close_interrupts_client_accept_uni() {
             if (!(e instanceof WebTransportError) || e.source !== "session") throw e;
             return { success: true, message: "accept uni interrupted by server close: " + e };
         }
+    "#,
+            TIMEOUT,
+        )
+        .await;
+
+    harness.teardown().await;
+    let result = result.unwrap();
+    assert!(result.success, "{}", result.message);
+}
+
+// ---------------------------------------------------------------------------
+// Stream isolation
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Boundary error codes (parameterized)
+// ---------------------------------------------------------------------------
+
+macro_rules! reset_code_test {
+    ($name:ident, $code:expr) => {
+        #[tokio::test]
+        async fn $name() {
+            init_tracing();
+
+            let expected_code: u32 = $code;
+
+            let handler: ServerHandler = Box::new(move |session| {
+                Box::pin(async move {
+                    let (_send, mut recv) = session.accept_bi().await.expect("accept_bi failed");
+                    let code = recv.received_reset().await.ok().flatten();
+                    assert_eq!(
+                        code,
+                        Some(expected_code),
+                        "reset code mismatch"
+                    );
+                    let err = session.closed().await;
+                    assert!(
+                        matches!(
+                            err,
+                            SessionError::WebTransportError(WebTransportError::Closed(_, _))
+                        ),
+                        "expected WebTransportError::Closed, got {err}"
+                    );
+                })
+            });
+
+            let harness = harness::setup(handler).await.unwrap();
+
+            let js_code = format!(
+                r#"
+                const wt = await connectWebTransport();
+                const stream = await wt.createBidirectionalStream();
+                const writer = stream.writable.getWriter();
+                let err = new WebTransportError({{ message: "abort", streamErrorCode: {} }});
+                await writer.abort(err);
+                wt.close();
+                return {{ success: true, message: "writer aborted with code {}" }};
+                "#,
+                expected_code, expected_code
+            );
+
+            let result = harness.run_js(&js_code, TIMEOUT).await;
+            harness.teardown().await;
+            let result = result.unwrap();
+            assert!(result.success, "{}", result.message);
+        }
+    };
+}
+
+reset_code_test!(stream_reset_code_zero, 0);
+reset_code_test!(stream_reset_code_255, 255);
+
+macro_rules! stop_code_test {
+    ($name:ident, $code:expr) => {
+        #[tokio::test]
+        async fn $name() {
+            init_tracing();
+
+            let expected_code: u32 = $code;
+
+            let handler: ServerHandler = Box::new(move |session| {
+                Box::pin(async move {
+                    let (send, _recv) = session.accept_bi().await.expect("accept_bi failed");
+                    let code = send.stopped().await.ok().flatten();
+                    assert_eq!(
+                        code,
+                        Some(expected_code),
+                        "stop code mismatch"
+                    );
+                    let err = session.closed().await;
+                    assert!(
+                        matches!(
+                            err,
+                            SessionError::WebTransportError(WebTransportError::Closed(_, _))
+                        ),
+                        "expected WebTransportError::Closed, got {err}"
+                    );
+                })
+            });
+
+            let harness = harness::setup(handler).await.unwrap();
+
+            let js_code = format!(
+                r#"
+                const wt = await connectWebTransport();
+                const stream = await wt.createBidirectionalStream();
+                const reader = stream.readable.getReader();
+                let err = new WebTransportError({{ message: "cancel", streamErrorCode: {} }});
+                await reader.cancel(err);
+                wt.close();
+                return {{ success: true, message: "reader cancelled with code {}" }};
+                "#,
+                expected_code, expected_code
+            );
+
+            let result = harness.run_js(&js_code, TIMEOUT).await;
+            harness.teardown().await;
+            let result = result.unwrap();
+            assert!(result.success, "{}", result.message);
+        }
+    };
+}
+
+stop_code_test!(stream_stop_code_zero, 0);
+stop_code_test!(stream_stop_code_255, 255);
+
+// ---------------------------------------------------------------------------
+// Server stream use-after-finish/reset/stop/session-close
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn server_write_after_finish() {
+    init_tracing();
+
+    let handler: ServerHandler = Box::new(|session| {
+        Box::pin(async move {
+            let (mut send, _recv) = session.open_bi().await.expect("open_bi failed");
+            send.write_all(b"hello").await.expect("write_all failed");
+            send.finish().expect("finish failed");
+            let result = send.write_all(b"more").await;
+            assert!(
+                matches!(result, Err(WriteError::ClosedStream)),
+                "expected ClosedStream after finish, got {result:?}"
+            );
+            let err = session.closed().await;
+            assert!(
+                matches!(
+                    err,
+                    SessionError::WebTransportError(WebTransportError::Closed(_, _))
+                ),
+                "expected WebTransportError::Closed, got {err}"
+            );
+        })
+    });
+
+    let harness = harness::setup(handler).await.unwrap();
+
+    let result = harness
+        .run_js(
+            r#"
+        const wt = await connectWebTransport();
+        const reader = wt.incomingBidirectionalStreams.getReader();
+        const { value: stream } = await reader.read();
+        const sr = stream.readable.getReader();
+        let received = "";
+        while (true) {
+            const { value, done } = await sr.read();
+            if (done) break;
+            received += new TextDecoder().decode(value);
+        }
+        wt.close();
+        return {
+            success: received === "hello",
+            message: "received: " + received
+        };
+    "#,
+            TIMEOUT,
+        )
+        .await;
+
+    harness.teardown().await;
+    let result = result.unwrap();
+    assert!(result.success, "{}", result.message);
+}
+
+#[tokio::test]
+async fn server_write_after_reset() {
+    init_tracing();
+
+    let handler: ServerHandler = Box::new(|session| {
+        Box::pin(async move {
+            let (mut send, _recv) = session.open_bi().await.expect("open_bi failed");
+            send.reset(42).expect("reset failed");
+            let result = send.write_all(b"more").await;
+            assert!(
+                matches!(result, Err(WriteError::ClosedStream)),
+                "expected ClosedStream after reset, got {result:?}"
+            );
+            let err = session.closed().await;
+            assert!(
+                matches!(
+                    err,
+                    SessionError::WebTransportError(WebTransportError::Closed(_, _))
+                ),
+                "expected WebTransportError::Closed, got {err}"
+            );
+        })
+    });
+
+    let harness = harness::setup(handler).await.unwrap();
+
+    let result = harness
+        .run_js(
+            r#"
+        const wt = await connectWebTransport();
+        // Give the server time to open a stream, reset it, and attempt write
+        await new Promise(r => setTimeout(r, 500));
+        wt.close();
+        return { success: true, message: "server tested write after reset" };
+    "#,
+            TIMEOUT,
+        )
+        .await;
+
+    harness.teardown().await;
+    let result = result.unwrap();
+    assert!(result.success, "{}", result.message);
+}
+
+#[tokio::test]
+async fn server_read_after_stop() {
+    init_tracing();
+
+    let handler: ServerHandler = Box::new(|session| {
+        Box::pin(async move {
+            let (_send, mut recv) = session.accept_bi().await.expect("accept_bi failed");
+            // Read initial data to ensure stream is established
+            let mut buf = [0u8; 1024];
+            recv.read(&mut buf).await.expect("initial read failed");
+            recv.stop(10).expect("stop failed");
+            let result = recv.read(&mut buf).await;
+            // Quinn sets `all_data_read = true` in stop(), so subsequent
+            // reads return Ok(None) — same as a cleanly finished stream —
+            // rather than an error.
+            assert!(
+                matches!(result, Ok(None)),
+                "expected Ok(None) after stop, got {result:?}"
+            );
+            let err = session.closed().await;
+            assert!(
+                matches!(
+                    err,
+                    SessionError::WebTransportError(WebTransportError::Closed(_, _))
+                ),
+                "expected WebTransportError::Closed, got {err}"
+            );
+        })
+    });
+
+    let harness = harness::setup(handler).await.unwrap();
+
+    let result = harness
+        .run_js(
+            r#"
+        const wt = await connectWebTransport();
+        const stream = await wt.createBidirectionalStream();
+        const writer = stream.writable.getWriter();
+        await writer.write(new Uint8Array([1]));
+        // Wait for STOP_SENDING to arrive, then handle writer error
+        try {
+            for (let i = 0; i < 100; i++) {
+                await writer.write(new Uint8Array(1024));
+                await new Promise(r => setTimeout(r, 10));
+            }
+        } catch (e) {
+            // Expected — STOP_SENDING causes writer error
+        }
+        wt.close();
+        return { success: true, message: "client done" };
+    "#,
+            TIMEOUT,
+        )
+        .await;
+
+    harness.teardown().await;
+    let result = result.unwrap();
+    assert!(result.success, "{}", result.message);
+}
+
+#[tokio::test]
+async fn server_read_on_stream_after_session_close() {
+    init_tracing();
+
+    let handler: ServerHandler = Box::new(|session| {
+        Box::pin(async move {
+            let (_send, mut recv) = session.accept_bi().await.expect("accept_bi failed");
+            session.close(7, b"done");
+            session.closed().await;
+            let mut buf = [0u8; 1024];
+            let result = recv.read(&mut buf).await;
+            match result {
+                Err(ReadError::SessionError(SessionError::ConnectionError(
+                    quinn::ConnectionError::LocallyClosed,
+                ))) => {}
+                other => panic!(
+                    "expected ReadError::SessionError(ConnectionError::LocallyClosed), got {other:?}"
+                ),
+            }
+        })
+    });
+
+    let harness = harness::setup(handler).await.unwrap();
+
+    let result = harness
+        .run_js(
+            r#"
+        const wt = await connectWebTransport();
+        const stream = await wt.createBidirectionalStream();
+        const writer = stream.writable.getWriter();
+        await writer.write(new Uint8Array([1]));
+        try { await wt.closed; } catch (e) {
+            if (!(e instanceof WebTransportError)) throw e;
+        }
+        return { success: true, message: "session closed" };
+    "#,
+            TIMEOUT,
+        )
+        .await;
+
+    harness.teardown().await;
+    let result = result.unwrap();
+    assert!(result.success, "{}", result.message);
+}
+
+#[tokio::test]
+async fn server_write_on_stream_after_session_close() {
+    init_tracing();
+
+    let handler: ServerHandler = Box::new(|session| {
+        Box::pin(async move {
+            let (mut send, _recv) = session.accept_bi().await.expect("accept_bi failed");
+            session.close(7, b"done");
+            session.closed().await;
+            let result = send.write_all(b"test").await;
+            match result {
+                Err(WriteError::SessionError(SessionError::ConnectionError(
+                    quinn::ConnectionError::LocallyClosed,
+                ))) => {}
+                other => panic!(
+                    "expected WriteError::SessionError(ConnectionError::LocallyClosed), got {other:?}"
+                ),
+            }
+        })
+    });
+
+    let harness = harness::setup(handler).await.unwrap();
+
+    let result = harness
+        .run_js(
+            r#"
+        const wt = await connectWebTransport();
+        const stream = await wt.createBidirectionalStream();
+        const writer = stream.writable.getWriter();
+        await writer.write(new Uint8Array([1]));
+        try { await wt.closed; } catch (e) {
+            if (!(e instanceof WebTransportError)) throw e;
+        }
+        return { success: true, message: "session closed" };
     "#,
             TIMEOUT,
         )

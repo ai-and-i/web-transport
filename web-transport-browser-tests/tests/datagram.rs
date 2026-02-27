@@ -172,3 +172,146 @@ async fn datagram_server_initiated() {
     let result = result.unwrap();
     assert!(result.success, "{}", result.message);
 }
+
+// ---------------------------------------------------------------------------
+// Size boundaries & properties
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn datagram_at_max_size() {
+    init_tracing();
+    let harness = harness::setup(harness::echo_handler()).await.unwrap();
+
+    let result = harness
+        .run_js(
+            r#"
+        const wt = await connectWebTransport();
+        const maxSize = wt.datagrams.maxDatagramSize;
+        const writer = wt.datagrams.writable.getWriter();
+        const reader = wt.datagrams.readable.getReader();
+
+        const data = new Uint8Array(maxSize).fill(0xAB);
+        await writer.write(data);
+        const { value } = await reader.read();
+        wt.close();
+        return {
+            success: value.length === maxSize,
+            message: "sent=" + maxSize + " received=" + value.length
+        };
+    "#,
+            TIMEOUT,
+        )
+        .await;
+
+    harness.teardown().await;
+    let result = result.unwrap();
+    assert!(result.success, "{}", result.message);
+}
+
+#[tokio::test]
+async fn datagram_oversized_rejected() {
+    init_tracing();
+
+    let handler: ServerHandler = Box::new(|session| {
+        Box::pin(async move {
+            let max_size = session.max_datagram_size();
+            let oversized = Bytes::from(vec![0xFFu8; max_size + 100]);
+            let result = session.send_datagram(oversized);
+            assert!(
+                result.is_err(),
+                "oversized send_datagram should fail, but succeeded"
+            );
+            let err = session.closed().await;
+            assert!(
+                matches!(
+                    err,
+                    SessionError::WebTransportError(WebTransportError::Closed(_, _))
+                ),
+                "expected WebTransportError::Closed, got {err}"
+            );
+        })
+    });
+
+    let harness = harness::setup(handler).await.unwrap();
+
+    let result = harness
+        .run_js(
+            r#"
+        const wt = await connectWebTransport();
+        // Give the server time to attempt the oversized send
+        await new Promise(r => setTimeout(r, 500));
+        wt.close();
+        return { success: true, message: "server rejected oversized datagram" };
+    "#,
+            TIMEOUT,
+        )
+        .await;
+
+    harness.teardown().await;
+    let result = result.unwrap();
+    assert!(result.success, "{}", result.message);
+}
+
+#[tokio::test]
+#[ignore = "empty datagrams appear to be silently dropped, causing a timeout"]
+async fn datagram_empty() {
+    init_tracing();
+    let harness = harness::setup(harness::echo_handler()).await.unwrap();
+
+    let result = harness
+        .run_js(
+            r#"
+        const wt = await connectWebTransport();
+        const writer = wt.datagrams.writable.getWriter();
+        const reader = wt.datagrams.readable.getReader();
+
+        await writer.write(new Uint8Array(0));
+        const { value } = await reader.read();
+        wt.close();
+        return {
+            success: value.length === 0,
+            message: "received length=" + value.length
+        };
+    "#,
+            TIMEOUT,
+        )
+        .await;
+
+    harness.teardown().await;
+    let result = result.unwrap();
+    assert!(result.success, "{}", result.message);
+}
+
+#[tokio::test]
+async fn datagram_high_water_marks() {
+    init_tracing();
+    let harness = harness::setup(harness::idle_handler()).await.unwrap();
+
+    let result = harness
+        .run_js(
+            r#"
+        const wt = await connectWebTransport();
+        const inHWM = wt.datagrams.incomingHighWaterMark;
+        const outHWM = wt.datagrams.outgoingHighWaterMark;
+        const initialOk = typeof inHWM === "number" && typeof outHWM === "number";
+
+        wt.datagrams.incomingHighWaterMark = 10;
+        wt.datagrams.outgoingHighWaterMark = 20;
+        const newIn = wt.datagrams.incomingHighWaterMark;
+        const newOut = wt.datagrams.outgoingHighWaterMark;
+
+        wt.close();
+        return {
+            success: initialOk && newIn === 10 && newOut === 20,
+            message: "initial: in=" + inHWM + " out=" + outHWM
+                + " new: in=" + newIn + " out=" + newOut
+        };
+    "#,
+            TIMEOUT,
+        )
+        .await;
+
+    harness.teardown().await;
+    let result = result.unwrap();
+    assert!(result.success, "{}", result.message);
+}

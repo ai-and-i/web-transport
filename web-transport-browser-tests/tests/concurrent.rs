@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use web_transport_browser_tests::harness;
 use web_transport_browser_tests::server::ServerHandler;
 use web_transport_quinn::{SessionError, WebTransportError};
@@ -51,6 +53,185 @@ async fn multiple_bidi_streams_concurrent() {
         return {
             success: ok,
             message: "results: " + JSON.stringify(results)
+        };
+    "#,
+            TIMEOUT,
+        )
+        .await;
+
+    harness.teardown().await;
+    let result = result.unwrap();
+    assert!(result.success, "{}", result.message);
+}
+
+// ---------------------------------------------------------------------------
+// Race conditions, rapid creation, mixed server streams
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn rapid_stream_creation() {
+    init_tracing();
+    let harness = harness::setup(harness::echo_handler()).await.unwrap();
+
+    let result = harness
+        .run_js(
+            r#"
+        const wt = await connectWebTransport();
+        const N = 50;
+        const promises = [];
+        for (let i = 0; i < N; i++) {
+            promises.push((async () => {
+                const stream = await wt.createBidirectionalStream();
+                const writer = stream.writable.getWriter();
+                const reader = stream.readable.getReader();
+                await writer.write(new Uint8Array([i % 256]));
+                await writer.close();
+                const { value, done } = await reader.read();
+                if (done) return false;
+                return value.length === 1 && value[0] === (i % 256);
+            })());
+        }
+        const results = await Promise.all(promises);
+        const allOk = results.every(r => r === true);
+        wt.close();
+        return {
+            success: allOk,
+            message: results.filter(r => !r).length + " of " + N + " failed"
+        };
+    "#,
+            LONG_TIMEOUT,
+        )
+        .await;
+
+    harness.teardown().await;
+    let result = result.unwrap();
+    assert!(result.success, "{}", result.message);
+}
+
+#[tokio::test]
+async fn server_close_while_client_creating_streams() {
+    init_tracing();
+
+    let handler: ServerHandler = Box::new(|session| {
+        Box::pin(async move {
+            // Accept the first stream
+            let _s1 = session.accept_bi().await.expect("accept_bi failed");
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            session.close(99, b"closing");
+            session.closed().await;
+        })
+    });
+
+    let harness = harness::setup(handler).await.unwrap();
+
+    let result = harness
+        .run_js(
+            r#"
+        const wt = await connectWebTransport();
+        const N = 20;
+        const promises = [];
+        for (let i = 0; i < N; i++) {
+            promises.push((async () => {
+                try {
+                    const stream = await wt.createBidirectionalStream();
+                    const writer = stream.writable.getWriter();
+                    await writer.write(new Uint8Array([i]));
+                    await writer.close();
+                    return true;
+                } catch (e) {
+                    return false;
+                }
+            })());
+        }
+        const results = await Promise.all(promises);
+        const succeeded = results.filter(r => r).length;
+        const failed = results.filter(r => !r).length;
+        try { await wt.closed; } catch (e) {}
+        return {
+            success: succeeded >= 1,
+            message: "succeeded=" + succeeded + " failed=" + failed
+        };
+    "#,
+            TIMEOUT,
+        )
+        .await;
+
+    harness.teardown().await;
+    let result = result.unwrap();
+    assert!(result.success, "{}", result.message);
+}
+
+#[tokio::test]
+async fn server_opens_bidi_and_uni_simultaneously() {
+    init_tracing();
+
+    let handler: ServerHandler = Box::new(|session| {
+        Box::pin(async move {
+            let (mut bi_send, _bi_recv) = session.open_bi().await.expect("open_bi failed");
+            bi_send
+                .write_all(b"bidi-data")
+                .await
+                .expect("write_all failed");
+            bi_send.finish().expect("finish failed");
+
+            let mut uni_send = session.open_uni().await.expect("open_uni failed");
+            uni_send
+                .write_all(b"uni-data")
+                .await
+                .expect("write_all failed");
+            uni_send.finish().expect("finish failed");
+
+            let err = session.closed().await;
+            assert!(
+                matches!(
+                    err,
+                    SessionError::WebTransportError(WebTransportError::Closed(_, _))
+                ),
+                "expected WebTransportError::Closed, got {err}"
+            );
+        })
+    });
+
+    let harness = harness::setup(handler).await.unwrap();
+
+    let result = harness
+        .run_js(
+            r#"
+        const wt = await connectWebTransport();
+        const [bidiResult, uniResult] = await Promise.all([
+            (async () => {
+                const reader = wt.incomingBidirectionalStreams.getReader();
+                const { value: stream, done } = await reader.read();
+                if (done) return "";
+                const sr = stream.readable.getReader();
+                let msg = "";
+                while (true) {
+                    const { value, done } = await sr.read();
+                    if (done) break;
+                    msg += new TextDecoder().decode(value);
+                }
+                return msg;
+            })(),
+            (async () => {
+                const reader = wt.incomingUnidirectionalStreams.getReader();
+                const { value: stream, done } = await reader.read();
+                if (done) return "";
+                const sr = stream.getReader();
+                let msg = "";
+                while (true) {
+                    const { value, done } = await sr.read();
+                    if (done) break;
+                    msg += new TextDecoder().decode(value);
+                }
+                return msg;
+            })()
+        ]);
+
+        wt.close();
+        const ok = bidiResult === "bidi-data" && uniResult === "uni-data";
+        return {
+            success: ok,
+            message: "bidi=" + bidiResult + " uni=" + uniResult
         };
     "#,
             TIMEOUT,
