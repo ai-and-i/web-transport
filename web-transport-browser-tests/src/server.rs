@@ -33,7 +33,7 @@ impl TestServer {
     /// if any handler panicked.
     pub async fn shutdown(mut self, expected_handlers: usize) {
         if let Some(tx) = self.shutdown_tx.take() {
-            tx.send(()).expect("shutdown receiver should be alive");
+            let _ = tx.send(());
         }
         if let Some(task) = self.task.take() {
             task.await.expect("accept loop task panicked");
