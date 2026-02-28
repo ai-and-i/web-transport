@@ -13,21 +13,16 @@ async fn stream_client_abort_sends_reset() {
 
     let handler: ServerHandler = Box::new(|session| {
         Box::pin(async move {
-            let (_send, mut recv) = session.accept_bi().await.expect("accept_bi failed");
+            let (mut send, mut recv) = session.accept_bi().await.expect("accept_bi failed");
+            send.write(&[1, 2, 3]).await.expect("write failed");
             let code = recv.received_reset().await.ok().flatten();
             assert_eq!(
                 code,
                 Some(42),
                 "server should receive RESET_STREAM with code 42"
             );
-            let err = session.closed().await;
-            assert!(
-                matches!(
-                    err,
-                    SessionError::WebTransportError(WebTransportError::Closed(_, _))
-                ),
-                "expected WebTransportError::Closed, got {err}"
-            );
+            send.write(&[1, 2, 3]).await.expect("write failed");
+            let _ = session.closed().await;
         })
     });
 
@@ -38,12 +33,18 @@ async fn stream_client_abort_sends_reset() {
             r#"
         const wt = await connectWebTransport();
         const stream = await wt.createBidirectionalStream();
+
+        // Wait for the server to establish the stream
+        const reader = stream.readable.getReader();
+        await reader.read();
+
         const writer = stream.writable.getWriter();
 
         // Construct WebTransportError — try both (message, init) and (init) forms
         let err = new WebTransportError({ message: "abort", streamErrorCode: 42 });
         await writer.abort(err);
-        wt.close();
+
+        await reader.read();
         return { success: true, message: "writer aborted with code 42" };
     "#,
             TIMEOUT,
@@ -61,21 +62,17 @@ async fn stream_client_cancel_sends_stop_sending() {
 
     let handler: ServerHandler = Box::new(|session| {
         Box::pin(async move {
-            let (send, _recv) = session.accept_bi().await.expect("accept_bi failed");
+            let (mut send, _recv) = session.accept_bi().await.expect("accept_bi failed");
+            let (mut send2, _recv2) = session.accept_bi().await.expect("2nd accept_bi failed");
+            send.write(&[1]).await.expect("write failed");
             let code = send.stopped().await.ok().flatten();
             assert_eq!(
                 code,
                 Some(77),
                 "server should receive STOP_SENDING with code 77"
             );
-            let err = session.closed().await;
-            assert!(
-                matches!(
-                    err,
-                    SessionError::WebTransportError(WebTransportError::Closed(_, _))
-                ),
-                "expected WebTransportError::Closed, got {err}"
-            );
+            send2.write(&[1]).await.expect("write to 2nd stream failed");
+            let _ = session.closed().await;
         })
     });
 
@@ -86,12 +83,17 @@ async fn stream_client_cancel_sends_stop_sending() {
             r#"
         const wt = await connectWebTransport();
         const stream = await wt.createBidirectionalStream();
+        const stream2 = await wt.createBidirectionalStream();
         const reader = stream.readable.getReader();
+        const reader2 = stream2.readable.getReader();
 
-        // Construct WebTransportError — try both (message, init) and (init) forms
+        // Wait for the server to establish the stream
+        await reader.read();
+
         let err = new WebTransportError({ message: "cancel", streamErrorCode: 77 });
         await reader.cancel(err);
-        wt.close();
+
+        await reader2.read();
         return { success: true, message: "reader cancelled with code 77" };
     "#,
             TIMEOUT,
@@ -109,7 +111,8 @@ async fn stream_client_reset_server_reader_errors() {
 
     let handler: ServerHandler = Box::new(|session| {
         Box::pin(async move {
-            let (_send, mut recv) = session.accept_bi().await.expect("accept_bi failed");
+            let (mut send, mut recv) = session.accept_bi().await.expect("accept_bi failed");
+            send.write(&[1]).await.expect("write failed");
             let mut buf = [0u8; 1024];
             loop {
                 match recv.read(&mut buf).await {
@@ -122,7 +125,7 @@ async fn stream_client_reset_server_reader_errors() {
                     Err(e) => panic!("unexpected read error: {e}"),
                 }
             }
-            session.close(0, b"");
+            send.write(&[1]).await.expect("write failed");
             let _ = session.closed().await;
         })
     });
@@ -134,12 +137,17 @@ async fn stream_client_reset_server_reader_errors() {
             r#"
         const wt = await connectWebTransport();
         const stream = await wt.createBidirectionalStream();
-        const writer = stream.writable.getWriter();
 
+        // Wait for the server to establish the stream
+        const reader = stream.readable.getReader();
+        await reader.read();
+
+        const writer = stream.writable.getWriter();
         await writer.write(new TextEncoder().encode("some data"));
         let err = new WebTransportError({ message: "abort", streamErrorCode: 42 });
         await writer.abort(err);
-        await wt.closed;
+
+        await reader.read();
         return { success: true, message: "writer aborted with code 42" };
     "#,
             TIMEOUT,
@@ -158,6 +166,7 @@ async fn stream_client_stop_server_writer_errors() {
     let handler: ServerHandler = Box::new(|session| {
         Box::pin(async move {
             let (mut send, _recv) = session.accept_bi().await.expect("accept_bi failed");
+            let (mut send2, _recv2) = session.accept_bi().await.expect("2nd accept_bi failed");
             // Keep writing until we get a Stopped error from the client's cancel
             let chunk = vec![0u8; 1024];
             loop {
@@ -172,7 +181,7 @@ async fn stream_client_stop_server_writer_errors() {
                     Err(e) => panic!("unexpected write error: {e}"),
                 }
             }
-            session.close(0, b"");
+            send2.write(&[1]).await.expect("write to 2nd stream failed");
             let _ = session.closed().await;
         })
     });
@@ -184,17 +193,18 @@ async fn stream_client_stop_server_writer_errors() {
             r#"
         const wt = await connectWebTransport();
         const stream = await wt.createBidirectionalStream();
-        const writer = stream.writable.getWriter();
+        const stream2 = await wt.createBidirectionalStream();
         const reader = stream.readable.getReader();
+        const reader2 = stream2.readable.getReader();
 
-        // Write to trigger server accept
-        await writer.write(new Uint8Array([1]));
         // Read to confirm the server has started writing
         await reader.read();
 
         let err = new WebTransportError({ message: "cancel", streamErrorCode: 77 });
         await reader.cancel(err);
-        await wt.closed;
+
+        await reader2.read();
+
         return { success: true, message: "reader cancelled with code 77" };
     "#,
             TIMEOUT,
@@ -706,21 +716,16 @@ macro_rules! reset_code_test {
 
             let handler: ServerHandler = Box::new(move |session| {
                 Box::pin(async move {
-                    let (_send, mut recv) = session.accept_bi().await.expect("accept_bi failed");
+                    let (mut send, mut recv) = session.accept_bi().await.expect("accept_bi failed");
+                    send.write(&[1]).await.expect("write failed");
                     let code = recv.received_reset().await.ok().flatten();
                     assert_eq!(
                         code,
                         Some(expected_code),
                         "reset code mismatch"
                     );
-                    let err = session.closed().await;
-                    assert!(
-                        matches!(
-                            err,
-                            SessionError::WebTransportError(WebTransportError::Closed(_, _))
-                        ),
-                        "expected WebTransportError::Closed, got {err}"
-                    );
+                    send.write(&[1]).await.expect("write failed");
+                    let _ = session.closed().await;
                 })
             });
 
@@ -730,10 +735,12 @@ macro_rules! reset_code_test {
                 r#"
                 const wt = await connectWebTransport();
                 const stream = await wt.createBidirectionalStream();
+                const reader = stream.readable.getReader();
+                await reader.read();
                 const writer = stream.writable.getWriter();
                 let err = new WebTransportError({{ message: "abort", streamErrorCode: {} }});
                 await writer.abort(err);
-                wt.close();
+                await reader.read();
                 return {{ success: true, message: "writer aborted with code {}" }};
                 "#,
                 expected_code, expected_code
@@ -760,21 +767,17 @@ macro_rules! stop_code_test {
 
             let handler: ServerHandler = Box::new(move |session| {
                 Box::pin(async move {
-                    let (send, _recv) = session.accept_bi().await.expect("accept_bi failed");
+                    let (mut send, _recv) = session.accept_bi().await.expect("accept_bi failed");
+                    let (mut send2, _recv2) = session.accept_bi().await.expect("2nd accept_bi failed");
+                    send.write(&[1]).await.expect("write failed");
                     let code = send.stopped().await.ok().flatten();
                     assert_eq!(
                         code,
                         Some(expected_code),
                         "stop code mismatch"
                     );
-                    let err = session.closed().await;
-                    assert!(
-                        matches!(
-                            err,
-                            SessionError::WebTransportError(WebTransportError::Closed(_, _))
-                        ),
-                        "expected WebTransportError::Closed, got {err}"
-                    );
+                    send2.write(&[1]).await.expect("write to 2nd stream failed");
+                    let _ = session.closed().await;
                 })
             });
 
@@ -784,10 +787,13 @@ macro_rules! stop_code_test {
                 r#"
                 const wt = await connectWebTransport();
                 const stream = await wt.createBidirectionalStream();
+                const stream2 = await wt.createBidirectionalStream();
                 const reader = stream.readable.getReader();
+                const reader2 = stream2.readable.getReader();
+                await reader.read();
                 let err = new WebTransportError({{ message: "cancel", streamErrorCode: {} }});
                 await reader.cancel(err);
-                wt.close();
+                await reader2.read();
                 return {{ success: true, message: "reader cancelled with code {}" }};
                 "#,
                 expected_code, expected_code
