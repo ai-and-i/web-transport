@@ -157,10 +157,7 @@ fn init_browser() -> SharedBrowser {
 
             // Extract Chrome's PID before we lose mutability, so the watchdog
             // can kill it on abnormal exit.
-            let chrome_pid = browser
-                .get_mut_child()
-                .and_then(|c| c.inner.id())
-                .unwrap_or(0);
+            let chrome_pid = browser.get_mut_child().and_then(|c| c.inner.id());
 
             // Spawn the CDP event handler on this runtime.
             tokio::spawn(async move {
@@ -183,7 +180,7 @@ fn init_browser() -> SharedBrowser {
         // our process exits.  The data dir path matches build_browser_config().
         let data_dir =
             std::env::temp_dir().join(format!("chromiumoxide-{}", std::process::id()));
-        let watchdog_pipe = spawn_cleanup_watchdog(chrome_pid, &data_dir);
+        let watchdog_pipe = chrome_pid.and_then(|pid| spawn_cleanup_watchdog(pid, &data_dir));
 
         SharedBrowser {
             browser: tokio::sync::Mutex::new(browser),
