@@ -99,13 +99,13 @@ fn spawn_cleanup_watchdog(
 ) -> Option<std::process::ChildStdin> {
     use std::process::{Command, Stdio};
 
+    // Pass chrome_pid and data_dir as positional arguments ($0, $1) to avoid
+    // shell injection from interpolating paths into the command string.
     let mut child = Command::new("sh")
         .arg("-c")
-        .arg(format!(
-            "read _; kill -9 {} 2>/dev/null; rm -rf '{}'",
-            chrome_pid,
-            data_dir.display(),
-        ))
+        .arg(r#"read _; kill -9 "$0" 2>/dev/null; rm -rf "$1""#)
+        .arg(chrome_pid.to_string())
+        .arg(data_dir.as_os_str())
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
