@@ -191,7 +191,7 @@ pub fn immediate_close_handler(code: u32, reason: &'static str) -> ServerHandler
             // Give the browser a bit of time to finish establishing the session.
             // Without this, browser sometimes throws WebTransportError instead of
             // cleanly closing the session.
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            tokio::time::sleep(Duration::from_millis(1000)).await;
             session.close(code, reason.as_bytes());
             // Wait for the connection to actually close.
             // This ensures the CloseWebTransportSession capsule is delivered.
