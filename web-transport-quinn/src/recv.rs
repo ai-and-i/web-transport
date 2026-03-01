@@ -70,7 +70,7 @@ impl RecvStream {
             Ok(Some(code)) => Ok(Some(
                 web_transport_proto::error_from_http3(code.into_inner()).unwrap(),
             )),
-            Err(quinn::ResetError::ConnectionLost(e)) => Err(e.into()),
+            Err(quinn::ResetError::ConnectionLost(conn_err)) => Err(conn_err.into()),
             Err(quinn::ResetError::ZeroRttRejected) => unreachable!("0-RTT not supported"),
         }
     }

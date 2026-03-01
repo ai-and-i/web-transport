@@ -38,7 +38,7 @@ impl SendStream {
         match self.stream.stopped().await {
             Ok(Some(code)) => Ok(web_transport_proto::error_from_http3(code.into_inner())),
             Ok(None) => Ok(None),
-            Err(quinn::StoppedError::ConnectionLost(e)) => Err(e.into()),
+            Err(quinn::StoppedError::ConnectionLost(conn_err)) => Err(conn_err.into()),
             Err(quinn::StoppedError::ZeroRttRejected) => unreachable!("0-RTT not supported"),
         }
     }
