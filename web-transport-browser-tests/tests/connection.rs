@@ -517,11 +517,9 @@ async fn server_send_datagram_after_close() {
             assert!(
                 matches!(
                     err,
-                    SessionError::SendDatagramError(quinn::SendDatagramError::ConnectionLost(
-                        quinn::ConnectionError::LocallyClosed
-                    ))
+                    SessionError::ConnectionError(quinn::ConnectionError::LocallyClosed)
                 ),
-                "expected SendDatagramError(ConnectionLost(LocallyClosed)), got {err:?}"
+                "expected ConnectionError(LocallyClosed), got {err:?}"
             );
         })
     });
