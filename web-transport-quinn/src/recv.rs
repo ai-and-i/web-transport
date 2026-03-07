@@ -25,10 +25,10 @@ impl RecvStream {
     }
 
     /// Replace connection-level errors with the stored session error if available.
-    /// Also replaces `InvalidReset` which are HTTP/3 teardown codes, not real stream errors.
-    fn map_error(&self, e: ReadError) -> ReadError {
+    fn map_error(&self, e: impl Into<ReadError>) -> ReadError {
+        let e = e.into();
         if let Some(err) = self.error.get() {
-            if matches!(&e, ReadError::SessionError(_) | ReadError::InvalidReset(_)) {
+            if matches!(&e, ReadError::SessionError(_)) {
                 return ReadError::SessionError(err.clone());
             }
         }
@@ -50,13 +50,13 @@ impl RecvStream {
         self.inner
             .read(buf)
             .await
-            .map_err(|e| self.map_error(e.into()))
+            .map_err(|e| self.map_error(e))
     }
 
     /// Fill the entire buffer with data. See [`quinn::RecvStream::read_exact`].
     pub async fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), ReadExactError> {
         self.inner.read_exact(buf).await.map_err(|e| match e {
-            quinn::ReadExactError::ReadError(e) => self.map_error(e.into()).into(),
+            quinn::ReadExactError::ReadError(e) => self.map_error(e).into(),
             e => e.into(),
         })
     }
@@ -70,7 +70,7 @@ impl RecvStream {
         self.inner
             .read_chunk(max_length, ordered)
             .await
-            .map_err(|e| self.map_error(e.into()))
+            .map_err(|e| self.map_error(e))
     }
 
     /// Read chunks of data from the stream. See [`quinn::RecvStream::read_chunks`].
@@ -78,7 +78,7 @@ impl RecvStream {
         self.inner
             .read_chunks(bufs)
             .await
-            .map_err(|e| self.map_error(e.into()))
+            .map_err(|e| self.map_error(e))
     }
 
     /// Read until the end of the stream or the limit is hit. See [`quinn::RecvStream::read_to_end`].
@@ -87,7 +87,7 @@ impl RecvStream {
             .read_to_end(size_limit)
             .await
             .map_err(|e| match e {
-                quinn::ReadToEndError::Read(e) => self.map_error(e.into()).into(),
+                quinn::ReadToEndError::Read(e) => self.map_error(e).into(),
                 e => e.into(),
             })
     }
@@ -98,9 +98,7 @@ impl RecvStream {
     pub async fn received_reset(&mut self) -> Result<Option<u32>, SessionError> {
         match self.inner.received_reset().await {
             Ok(None) => Ok(None),
-            Ok(Some(code)) => Ok(Some(
-                web_transport_proto::error_from_http3(code.into_inner()).unwrap(),
-            )),
+            Ok(Some(code)) => Ok(web_transport_proto::error_from_http3(code.into_inner())),
             Err(quinn::ResetError::ConnectionLost(conn_err)) => {
                 Err(self.error.get().cloned().unwrap_or_else(|| conn_err.into()))
             }

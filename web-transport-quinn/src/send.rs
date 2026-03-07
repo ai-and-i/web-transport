@@ -25,13 +25,10 @@ impl SendStream {
     }
 
     /// Replace connection-level errors with the stored session error if available.
-    /// Also replaces `InvalidStopped` which are HTTP/3 teardown codes, not real stream errors.
-    fn map_error(&self, e: WriteError) -> WriteError {
+    fn map_error(&self, e: impl Into<WriteError>) -> WriteError {
+        let e = e.into();
         if let Some(err) = self.error.get() {
-            if matches!(
-                &e,
-                WriteError::SessionError(_) | WriteError::InvalidStopped(_)
-            ) {
+            if matches!(&e, WriteError::SessionError(_)) {
                 return WriteError::SessionError(err.clone());
             }
         }
@@ -68,7 +65,7 @@ impl SendStream {
         self.stream
             .write(buf)
             .await
-            .map_err(|e| self.map_error(e.into()))
+            .map_err(|e| self.map_error(e))
     }
 
     /// Write all of the data to the stream. See [`quinn::SendStream::write_all`].
@@ -76,7 +73,7 @@ impl SendStream {
         self.stream
             .write_all(buf)
             .await
-            .map_err(|e| self.map_error(e.into()))
+            .map_err(|e| self.map_error(e))
     }
 
     /// Write chunks of data to the stream. See [`quinn::SendStream::write_chunks`].
@@ -84,7 +81,7 @@ impl SendStream {
         self.stream
             .write_chunks(bufs)
             .await
-            .map_err(|e| self.map_error(e.into()))
+            .map_err(|e| self.map_error(e))
     }
 
     /// Write a chunk of data to the stream. See [`quinn::SendStream::write_chunk`].
@@ -92,7 +89,7 @@ impl SendStream {
         self.stream
             .write_chunk(buf)
             .await
-            .map_err(|e| self.map_error(e.into()))
+            .map_err(|e| self.map_error(e))
     }
 
     /// Write all of the chunks of data to the stream. See [`quinn::SendStream::write_all_chunks`].
@@ -100,7 +97,7 @@ impl SendStream {
         self.stream
             .write_all_chunks(bufs)
             .await
-            .map_err(|e| self.map_error(e.into()))
+            .map_err(|e| self.map_error(e))
     }
 
     /// Mark the stream as finished, such that no more data can be written. See [`quinn::SendStream::finish`].
