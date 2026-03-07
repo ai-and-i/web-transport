@@ -47,10 +47,7 @@ impl RecvStream {
 
     /// Read some data into the buffer and return the amount read. See [`quinn::RecvStream::read`].
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<Option<usize>, ReadError> {
-        self.inner
-            .read(buf)
-            .await
-            .map_err(|e| self.map_error(e))
+        self.inner.read(buf).await.map_err(|e| self.map_error(e))
     }
 
     /// Fill the entire buffer with data. See [`quinn::RecvStream::read_exact`].

@@ -62,10 +62,7 @@ impl SendStream {
 
     /// Write some data to the stream, returning the size written. See [`quinn::SendStream::write`].
     pub async fn write(&mut self, buf: &[u8]) -> Result<usize, WriteError> {
-        self.stream
-            .write(buf)
-            .await
-            .map_err(|e| self.map_error(e))
+        self.stream.write(buf).await.map_err(|e| self.map_error(e))
     }
 
     /// Write all of the data to the stream. See [`quinn::SendStream::write_all`].
