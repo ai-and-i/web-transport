@@ -121,7 +121,7 @@ jobs:
 
       - name: Move artifacts
         working-directory: js/web-transport
-        run: bunx napi artifacts --dir artifacts
+        run: bunx napi artifacts -d artifacts
 
       - name: Check if already published
         id: check-native
