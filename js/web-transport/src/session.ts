@@ -31,6 +31,11 @@ function wrapSendStream(send: NapiSendStream): WritableStream<Uint8Array> {
 	});
 }
 
+export interface SessionOptions extends WebTransportOptions {
+	/** Skip all certificate verification. Only use for testing. */
+	serverCertificateDisableVerify?: boolean;
+}
+
 export default class Session implements WebTransport {
 	readonly ready: Promise<void>;
 	readonly closed: Promise<WebTransportCloseInfo>;
@@ -42,10 +47,10 @@ export default class Session implements WebTransport {
 	#incomingUnidirectionalStreams: ReadableStream<ReadableStream<Uint8Array>> | undefined;
 
 	// Construct from URL (client-side polyfill)
-	constructor(url: string | URL, options?: WebTransportOptions);
+	constructor(url: string | URL, options?: SessionOptions);
 	// Construct from existing NapiSession (server-side)
 	constructor(session: NapiSession);
-	constructor(urlOrSession: string | URL | NapiSession, options?: WebTransportOptions) {
+	constructor(urlOrSession: string | URL | NapiSession, options?: SessionOptions) {
 		const ready = Promise.withResolvers<void>();
 		const closed = Promise.withResolvers<WebTransportCloseInfo>();
 		this.ready = ready.promise;
@@ -70,8 +75,14 @@ export default class Session implements WebTransport {
 			this.datagrams = new DeferredDatagrams();
 
 			const hashes = options?.serverCertificateHashes;
+			if (options?.serverCertificateDisableVerify && hashes && hashes.length > 0) {
+				throw new Error("serverCertificateDisableVerify and serverCertificateHashes cannot be used together");
+			}
+
 			let client: NapiClient;
-			if (hashes && hashes.length > 0) {
+			if (options?.serverCertificateDisableVerify) {
+				client = NapiClient.disableVerify();
+			} else if (hashes && hashes.length > 0) {
 				const buffers = hashes
 					.filter((h): h is WebTransportHash & { value: BufferSource } => h.value != null)
 					.map((h) => Buffer.from(h.value as ArrayBuffer));
