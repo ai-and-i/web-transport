@@ -163,13 +163,13 @@ def start_server(
     async def _factory(
         **server_kwargs: str | float | None,
     ) -> AsyncIterator[tuple[web_transport.Server, int, str]]:
-        kw = {
+        kw: dict[str, Any] = {
             "certificate_chain": [cert],
             "private_key": key,
             "bind": "127.0.0.1:0",
         }
         kw.update(server_kwargs)
-        async with web_transport.Server(**kw) as server:  # type: ignore[arg-type]
+        async with web_transport.Server(**kw) as server:
             _, port = server.local_addr
             yield server, port, hash_b64
 
