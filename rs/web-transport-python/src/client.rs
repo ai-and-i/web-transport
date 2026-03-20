@@ -27,6 +27,12 @@ impl Client {
         max_idle_timeout: Option<f64>,
         keep_alive_interval: Option<f64>,
     ) -> PyResult<Self> {
+        if no_cert_verification && server_certificate_hashes.is_some() {
+            return Err(PyValueError::new_err(
+                "no_cert_verification and server_certificate_hashes are mutually exclusive; choose one or the other",
+            ));
+        }
+
         // Crypto provider — matches web_transport_quinn::crypto::default_provider()
         // with the "ring" feature enabled.
         let provider = Arc::new(rustls::crypto::ring::default_provider());
