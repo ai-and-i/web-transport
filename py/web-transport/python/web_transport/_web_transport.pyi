@@ -5,44 +5,6 @@ from typing import Literal
 from types import TracebackType
 
 # ---------------------------------------------------------------------------
-# Free functions
-# ---------------------------------------------------------------------------
-
-def generate_self_signed(
-    subject_alt_names: list[str],
-) -> tuple[bytes, bytes]:
-    """Generate a self-signed certificate and private key.
-
-    Uses ECDSA P-256 and a 14-day validity period (the maximum allowed by
-    WebTransport for certificate pinning).
-
-    Args:
-        subject_alt_names: SANs for the certificate
-            (e.g. ``["localhost", "127.0.0.1", "::1"]``).
-            Each entry is parsed as an IP address if possible, otherwise
-            treated as a DNS name.
-
-    Returns:
-        A ``(certificate_der, private_key_der)`` tuple of raw DER bytes.
-
-    Raises:
-        ValueError: If *subject_alt_names* is empty or contains values that
-            are neither valid DNS names nor IP addresses.
-    """
-    ...
-
-def certificate_hash(certificate_der: bytes) -> bytes:
-    """Compute the SHA-256 fingerprint of a DER-encoded certificate.
-
-    Args:
-        certificate_der: Raw DER-encoded certificate bytes.
-
-    Returns:
-        32 bytes (SHA-256 digest).
-    """
-    ...
-
-# ---------------------------------------------------------------------------
 # Exceptions
 #
 # WebTransportError                     Base for all web-transport errors
