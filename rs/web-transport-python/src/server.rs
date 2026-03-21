@@ -69,7 +69,7 @@ impl Server {
         };
 
         if let Some(cc) = congestion_controller {
-            transport.congestion_controller_factory(cc.clone());
+            transport.congestion_controller_factory(cc);
         }
         let transport_config = Arc::new(transport);
 
