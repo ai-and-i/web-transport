@@ -174,7 +174,6 @@ async def test_browser_cancel_recv_with_code(
 ) -> None:
     """Browser reader.cancel(42) → server send.write() raises StreamClosedByPeer(kind='stop', code=42)."""
     async with start_server() as (server, port, hash_b64):
-
         error: web_transport.StreamClosedByPeer | None = None
 
         async def server_side() -> None:
