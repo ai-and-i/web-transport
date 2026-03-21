@@ -65,10 +65,15 @@ impl Client {
             let mut roots = rustls::RootCertStore::empty();
             let native = rustls_native_certs::load_native_certs();
             if !native.errors.is_empty() {
-                eprintln!(
-                    "warning: encountered errors loading native certificates: {:?}",
+                let msg = format!(
+                    "encountered errors loading native certificates: {:?}",
                     native.errors
                 );
+                Python::attach(|py| {
+                    if let Ok(warnings) = py.import("warnings") {
+                        let _ = warnings.call_method1("warn", (&msg,));
+                    }
+                });
             }
             for cert in native.certs {
                 let _ = roots.add(cert);
