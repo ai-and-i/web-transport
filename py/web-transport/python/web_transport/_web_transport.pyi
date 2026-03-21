@@ -398,9 +398,10 @@ class Client:
         """Create a new WebTransport client.
 
         Raises:
-            ValueError: If *congestion_control* is not a recognized algorithm,
-                *max_idle_timeout* is out of range, or the QUIC endpoint
-                could not be created.
+            ValueError: If both *server_certificate_hashes* and
+                *no_cert_verification* are specified, *congestion_control*
+                is not a recognized algorithm, *max_idle_timeout* is out of
+                range, or the QUIC endpoint could not be created.
         """
         ...
 
@@ -582,6 +583,7 @@ class Session:
             SessionClosedByPeer: If the peer closed the session.
             SessionClosedLocally: If the session was already closed locally.
             SessionTimeout: If the session timed out.
+            ProtocolError: If a QUIC or HTTP/3 protocol violation occurred.
         """
         ...
 
@@ -624,6 +626,10 @@ class Session:
             code: WebTransport application error code (default ``0``).
                 Valid range is ``0`` to ``2**32 - 1``.
             reason: Human-readable close reason (default ``""``).
+
+        Raises:
+            OverflowError: If *code* is not in the range ``0`` to
+                ``2**32 - 1``.
         """
         ...
 
@@ -952,27 +958,28 @@ class RecvStream:
         """Wait until the peer resets the stream or it is otherwise closed.
 
         Completes when the peer sends ``RESET_STREAM`` **or** when the
-        stream was previously :meth:`stop`\\ ped locally, **or** when the
         peer calls :meth:`~SendStream.finish` and all data has been
         received, after which it is no longer meaningful for the stream
         to be reset.
 
-        For a variety of reasons, the peer may not send acknowledgements
-        immediately upon receiving data. As such, relying on ``wait_closed``
-        to know when the peer has finished a stream may introduce more
-        latency than using an application-level response of some sort.
+        Because the stream may remain open until the peer finishes or
+        resets it, relying on :meth:`RecvStream.wait_closed` to detect
+        receiver completion may introduce more latency than using an
+        application-level response of some sort.
 
         Can be interrupted by :meth:`stop`, which causes
         ``wait_closed()`` to raise :class:`StreamClosedLocally`.
 
         Returns:
-            The peer's error code if the peer sent ``RESET_STREAM``, or
-            ``None`` if the stream was stopped locally or the peer
-            finished the stream and all data was received.
+            The peer's error code (``int``) if the peer sent
+            ``RESET_STREAM``, or ``None`` if the peer finished the
+            stream and all data was received.  Also returns ``None``
+            if the ``RESET_STREAM`` error code is not a valid
+            WebTransport error code.
 
         Raises:
-            StreamClosedLocally: If the stream was already stopped locally,
-                or :meth:`stop` was called while waiting.
+            StreamClosedLocally: If :meth:`stop` was called before or
+                while ``wait_closed()`` is waiting.
             SessionClosedByPeer: If the peer closed the session.
             SessionClosedLocally: If the session was already closed locally.
             SessionTimeout: If the session timed out.
