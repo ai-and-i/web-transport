@@ -22,7 +22,6 @@ pyo3-async-runtimes = { version = "0.28", features = ["tokio-runtime"] }
 quinn = { version = "0.11", default-features = false, features = ["rustls-ring", "runtime-tokio"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 rustls-native-certs = "0.8"
-rustls-pki-types = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 tokio-util = "0.7"
 url = "2"
