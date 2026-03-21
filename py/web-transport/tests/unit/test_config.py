@@ -67,6 +67,12 @@ def test_invalid_keep_alive_interval():
         web_transport.Client(keep_alive_interval=-1.0)
 
 
+def test_client_close_code_max_valid():
+    """client.close(code=2**62 - 1) is accepted (max QUIC VarInt)."""
+    client = web_transport.Client()
+    client.close(code=2**62 - 1)
+
+
 def test_client_close_code_too_large():
     """client.close(code=2**62) -> ValueError."""
     client = web_transport.Client()

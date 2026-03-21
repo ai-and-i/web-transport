@@ -251,8 +251,8 @@ async def test_multiple_concurrent_sessions(self_signed_cert, cert_hash):
 
 
 @pytest.mark.asyncio
-async def test_server_close_with_code(self_signed_cert, cert_hash):
-    """server.close(code, reason) terminates all active sessions."""
+async def test_session_close_with_code(self_signed_cert, cert_hash):
+    """session.close(code, reason) terminates the session."""
     cert, key = self_signed_cert
 
     async with web_transport.Server(

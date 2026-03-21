@@ -2,6 +2,7 @@ import web_transport
 
 
 def test_base_hierarchy():
+    assert issubclass(web_transport.WebTransportError, Exception)
     assert issubclass(web_transport.SessionError, web_transport.WebTransportError)
     assert issubclass(web_transport.StreamError, web_transport.WebTransportError)
     assert issubclass(web_transport.DatagramError, web_transport.WebTransportError)
