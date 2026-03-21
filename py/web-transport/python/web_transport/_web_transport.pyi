@@ -449,11 +449,14 @@ class Client:
 
         Raises:
             ValueError: If *url* is not a valid URL.
-            ConnectError: If the connection cannot be established (e.g.
-                DNS resolution failure, HTTP/3 error, or invalid server name).
-            SessionTimeout: If the connection attempt timed out.
-            ProtocolError: If a QUIC or HTTP/3 protocol violation occurred
-                during the handshake.
+            ConnectError: If the connection cannot be established.
+                This covers all failure modes including timeouts,
+                protocol violations, DNS resolution failures, and
+                TLS/certificate errors.  When the server explicitly
+                rejects the session with a non-200 HTTP status code,
+                the more specific :class:`SessionRejected` subclass
+                (which carries a ``status_code`` attribute) is raised
+                instead.
         """
         ...
 
@@ -894,11 +897,14 @@ class RecvStream:
     async def readexactly(self, n: int) -> bytes:
         """Read exactly *n* bytes.
 
-        If EOF has already been reached, immediately raises
-        :class:`StreamIncompleteReadError` with ``partial=b""``.
+        If *n* is ``0``, returns ``b""`` immediately — even if EOF has
+        already been reached.  For *n* > ``0``, if EOF has already been
+        reached, immediately raises :class:`StreamIncompleteReadError`
+        with ``.partial`` set to ``b""`` and ``.expected`` set to *n*.
 
-        If :meth:`stop` is called while a read is pending, the read is
-        interrupted and raises :class:`StreamClosedLocally`.
+        If :meth:`stop` is called while a :meth:`readexactly` call is
+        pending, the read is interrupted and raises
+        :class:`StreamClosedLocally`.
 
         Args:
             n: Number of bytes to read.
