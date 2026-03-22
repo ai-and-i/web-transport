@@ -1,7 +1,15 @@
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
+use std::num::NonZeroU32;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures::future::BoxFuture;
+use futures::stream::FuturesUnordered;
+use futures::StreamExt;
+use governor::clock::DefaultClock;
+use governor::state::keyed::DashMapStateStore;
+use governor::{Quota, RateLimiter};
 use pyo3::exceptions::{PyStopAsyncIteration, PyValueError};
 use pyo3::prelude::*;
 use tokio::sync::Mutex;
@@ -10,18 +18,28 @@ use crate::errors;
 use crate::runtime;
 use crate::session::Session;
 
+type IpRateLimiter = RateLimiter<IpAddr, DashMapStateStore<IpAddr>, DefaultClock>;
+
+type Handshakes = FuturesUnordered<
+    BoxFuture<'static, Result<web_transport_quinn::Request, web_transport_quinn::ServerError>>,
+>;
+
 #[pyclass]
 pub struct Server {
-    inner: Arc<Mutex<web_transport_quinn::Server>>,
     endpoint: quinn::Endpoint,
+    handshakes: Arc<Mutex<Handshakes>>,
     local_addr: (String, u16),
     transport_config: Arc<quinn::TransportConfig>,
+    rate_limiter: Option<Arc<IpRateLimiter>>,
+    // Epoch seconds of last `retain_recent()` call (0 = never).
+    last_cleanup: Arc<AtomicU64>,
 }
 
 #[pymethods]
 impl Server {
     #[new]
-    #[pyo3(signature = (*, certificate_chain, private_key, bind="[::]:4433", congestion_control="default", max_idle_timeout=Some(30.0), keep_alive_interval=None))]
+    #[pyo3(signature = (*, certificate_chain, private_key, bind="[::]:4433", congestion_control="default", max_idle_timeout=Some(30.0), keep_alive_interval=None, rate_limit_per_ip=None, rate_limit_max_burst=None))]
+    #[allow(clippy::too_many_arguments)]
     fn new(
         certificate_chain: Vec<Vec<u8>>,
         private_key: Vec<u8>,
@@ -29,6 +47,8 @@ impl Server {
         congestion_control: &str,
         max_idle_timeout: Option<f64>,
         keep_alive_interval: Option<f64>,
+        rate_limit_per_ip: Option<f64>,
+        rate_limit_max_burst: Option<u32>,
     ) -> PyResult<Self> {
         let addr: SocketAddr = bind
             .parse()
@@ -88,13 +108,16 @@ impl Server {
             .local_addr()
             .map_err(|e| PyValueError::new_err(format!("failed to get local addr: {e}")))?;
 
-        let server = web_transport_quinn::Server::new(endpoint.clone());
+        // Build rate limiter
+        let rate_limiter = build_rate_limiter(rate_limit_per_ip, rate_limit_max_burst)?;
 
         Ok(Self {
-            inner: Arc::new(Mutex::new(server)),
             endpoint,
+            handshakes: Arc::new(Mutex::new(FuturesUnordered::new())),
             local_addr: (local_addr.ip().to_string(), local_addr.port()),
             transport_config,
+            rate_limiter,
+            last_cleanup: Arc::new(AtomicU64::new(0)),
         })
     }
 
@@ -125,10 +148,12 @@ impl Server {
     }
 
     fn __anext__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let inner = self.inner.clone();
+        let endpoint = self.endpoint.clone();
+        let handshakes = self.handshakes.clone();
+        let rate_limiter = self.rate_limiter.clone();
+        let last_cleanup = self.last_cleanup.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let mut guard = inner.lock().await;
-            match guard.accept().await {
+            match accept_inner(&endpoint, &handshakes, &rate_limiter, &last_cleanup).await {
                 Some(request) => Ok(SessionRequest::new(request)),
                 None => Err(PyStopAsyncIteration::new_err(())),
             }
@@ -137,13 +162,16 @@ impl Server {
 
     /// Wait for the next incoming session request.
     fn accept<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let inner = self.inner.clone();
+        let endpoint = self.endpoint.clone();
+        let handshakes = self.handshakes.clone();
+        let rate_limiter = self.rate_limiter.clone();
+        let last_cleanup = self.last_cleanup.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let mut guard = inner.lock().await;
-            match guard.accept().await {
-                Some(request) => Ok(Some(SessionRequest::new(request))),
-                None => Ok(None),
-            }
+            Ok(
+                accept_inner(&endpoint, &handshakes, &rate_limiter, &last_cleanup)
+                    .await
+                    .map(SessionRequest::new),
+            )
         })
     }
 
@@ -186,6 +214,115 @@ impl Server {
         Ok(())
     }
 }
+
+// ---------------------------------------------------------------------------
+// Accept helper
+// ---------------------------------------------------------------------------
+
+/// Accept the next session request, auto-refusing rate-limited connections
+/// at the QUIC level (before TLS handshake).
+async fn accept_inner(
+    endpoint: &quinn::Endpoint,
+    handshakes: &Mutex<Handshakes>,
+    rate_limiter: &Option<Arc<IpRateLimiter>>,
+    last_cleanup: &AtomicU64,
+) -> Option<web_transport_quinn::Request> {
+    let mut handshakes = handshakes.lock().await;
+    loop {
+        tokio::select! {
+            res = endpoint.accept() => {
+                let incoming = res?;
+
+                // Rate limiting gate (pre-TLS)
+                if let Some(ref limiter) = rate_limiter {
+                    // Periodically evict stale IP entries (at most once per 60s)
+                    maybe_cleanup(limiter, last_cleanup);
+
+                    // Force address validation if not already validated
+                    if !incoming.remote_address_validated() && incoming.may_retry() {
+                        let _ = incoming.retry();
+                        continue;
+                    }
+                    // Check rate limit for this IP
+                    if limiter.check_key(&incoming.remote_address().ip()).is_err() {
+                        incoming.refuse();
+                        continue;
+                    }
+                }
+
+                // Proceed with TLS + H3 handshake (concurrent)
+                handshakes.push(Box::pin(async move {
+                    let conn = incoming.await?;
+                    web_transport_quinn::Request::accept(conn).await
+                }));
+            }
+            Some(res) = handshakes.next() => {
+                if let Ok(request) = res {
+                    return Some(request);
+                }
+            }
+        }
+    }
+}
+
+const CLEANUP_INTERVAL_SECS: u64 = 10;
+
+/// Evict stale entries from the rate limiter at most once per `CLEANUP_INTERVAL_SECS`.
+fn maybe_cleanup(limiter: &IpRateLimiter, last_cleanup: &AtomicU64) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let prev = last_cleanup.load(Ordering::Relaxed);
+    if now.saturating_sub(prev) >= CLEANUP_INTERVAL_SECS
+        && last_cleanup
+            .compare_exchange(prev, now, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
+    {
+        limiter.retain_recent();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Rate limiter construction
+// ---------------------------------------------------------------------------
+
+fn build_rate_limiter(
+    rate: Option<f64>,
+    burst: Option<u32>,
+) -> PyResult<Option<Arc<IpRateLimiter>>> {
+    let Some(rate) = rate else {
+        if burst.is_some() {
+            return Err(PyValueError::new_err(
+                "rate_limit_max_burst requires rate_limit_per_ip",
+            ));
+        }
+        return Ok(None);
+    };
+
+    if rate <= 0.0 {
+        return Err(PyValueError::new_err("rate_limit_per_ip must be > 0"));
+    }
+
+    let period = Duration::try_from_secs_f64(1.0 / rate)
+        .map_err(|_| PyValueError::new_err("invalid rate_limit_per_ip"))?;
+
+    let burst = match burst {
+        Some(b) => NonZeroU32::new(b)
+            .ok_or_else(|| PyValueError::new_err("rate_limit_max_burst must be > 0")),
+        None => Ok(NonZeroU32::MIN), // default burst = 1
+    }?;
+
+    let quota = Quota::with_period(period)
+        .ok_or_else(|| PyValueError::new_err("rate_limit_per_ip is too large"))?
+        .allow_burst(burst);
+
+    Ok(Some(Arc::new(governor::RateLimiter::dashmap(quota))))
+}
+
+// ---------------------------------------------------------------------------
+// TLS config
+// ---------------------------------------------------------------------------
 
 fn build_tls_config(
     certificate_chain: Vec<Vec<u8>>,

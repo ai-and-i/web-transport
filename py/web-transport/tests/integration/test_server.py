@@ -511,6 +511,103 @@ async def test_reload_existing_session_survives(self_signed_cert, cert_hash):
         )
 
 
+# ---------------------------------------------------------------------------
+# Rate limiting
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_rejects_excess_connections(self_signed_cert, cert_hash):
+    """Connections exceeding rate limit are refused at QUIC level."""
+    cert, key = self_signed_cert
+
+    async with web_transport.Server(
+        certificate_chain=[cert],
+        private_key=key,
+        bind="[::1]:0",
+        rate_limit_per_ip=2.0,
+        rate_limit_max_burst=2,
+        max_idle_timeout=5,
+    ) as server:
+        _, port = server.local_addr
+        accepted = 0
+        rejected = 0
+
+        async def server_task():
+            nonlocal accepted
+            for _ in range(2):
+                request = await server.accept()
+                assert request is not None
+                session = await request.accept()
+                accepted += 1
+                session.close()
+                await session.wait_closed()
+
+        async def client_task():
+            nonlocal rejected
+            async with web_transport.Client(
+                server_certificate_hashes=[cert_hash],
+                max_idle_timeout=5,
+            ) as client:
+                for _ in range(4):
+                    try:
+                        session = await client.connect(f"https://[::1]:{port}")
+                        session.close()
+                        await session.wait_closed()
+                    except web_transport.ConnectError:
+                        rejected += 1
+
+        await asyncio.gather(
+            asyncio.create_task(server_task()),
+            asyncio.create_task(client_task()),
+        )
+
+        assert accepted == 2
+        assert rejected >= 1
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_disabled_accepts_all(self_signed_cert, cert_hash):
+    """Without rate limit params, all connections are accepted."""
+    cert, key = self_signed_cert
+
+    async with web_transport.Server(
+        certificate_chain=[cert],
+        private_key=key,
+        bind="[::1]:0",
+    ) as server:
+        _, port = server.local_addr
+        accepted = 0
+
+        async def server_task():
+            nonlocal accepted
+            for _ in range(5):
+                request = await server.accept()
+                if request is None:
+                    break
+                session = await request.accept()
+                accepted += 1
+                session.close()
+
+        async def client_task():
+            async with web_transport.Client(
+                server_certificate_hashes=[cert_hash]
+            ) as client:
+                for _ in range(5):
+                    session = await client.connect(f"https://[::1]:{port}")
+                    session.close()
+                    await session.wait_closed()
+            await asyncio.sleep(0.1)
+            server.close()
+
+        await asyncio.gather(
+            asyncio.create_task(server_task()),
+            asyncio.create_task(client_task()),
+        )
+
+        assert accepted == 5
+
+
 @pytest.mark.asyncio
 async def test_reload_invalid_cert_raises(self_signed_cert, cert_hash):
     """Invalid cert/key on reload raises ValueError; server keeps working."""

@@ -229,6 +229,15 @@ class Server:
             is closed. ``None`` disables the timeout (default ``30``).
         keep_alive_interval: Interval in seconds between QUIC keep-alive
             pings. ``None`` disables keep-alives (default ``None``).
+        rate_limit_per_ip: Sustained rate limit in requests per second per
+            IP address. ``None`` disables rate limiting (default ``None``).
+            When enabled, connections from IPs that exceed the limit are
+            refused at the QUIC level before the TLS handshake, and the
+            client's remote address is validated via QUIC retry tokens.
+        rate_limit_max_burst: Maximum instantaneous burst of requests allowed
+            from a single IP before the steady-state rate kicks in. Defaults
+            to ``1`` (strictly uniform spacing). Only valid when
+            *rate_limit_per_ip* is set.
     """
 
     def __init__(
@@ -240,6 +249,8 @@ class Server:
         congestion_control: Literal["default", "throughput", "low_latency"] = "default",
         max_idle_timeout: float | None = 30,
         keep_alive_interval: float | None = None,
+        rate_limit_per_ip: float | None = None,
+        rate_limit_max_burst: int | None = None,
     ) -> None:
         """Create a new WebTransport server.
 
@@ -247,7 +258,8 @@ class Server:
             ValueError: If *bind* is not a valid socket address, *private_key*
                 is not a valid PKCS#8 DER-encoded key, the certificate chain
                 is invalid, *congestion_control* is not a recognized algorithm,
-                or *max_idle_timeout* is out of range.
+                *max_idle_timeout* is out of range, or the rate limiting
+                parameters are inconsistent.
         """
         ...
 
