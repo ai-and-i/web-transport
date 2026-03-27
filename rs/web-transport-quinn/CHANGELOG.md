@@ -31,6 +31,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.9](https://github.com/ai-and-i/web-transport/compare/web-transport-quinn-v0.11.8...web-transport-quinn-v0.11.9) - 2026-03-27
+
+### Other
+
+- Add Python bindings for web-transport-quinn via PyO3 ([#216](https://github.com/ai-and-i/web-transport/pull/216))
+- Bound close_with_capsule graceful-close sequence with timeout ([#217](https://github.com/ai-and-i/web-transport/pull/217))
+- Fix a minor regression in map_error ([#215](https://github.com/ai-and-i/web-transport/pull/215))
+
 ## [0.11.8](https://github.com/moq-dev/web-transport/compare/web-transport-quinn-v0.11.7...web-transport-quinn-v0.11.8) - 2026-03-11
 
 ### Added
