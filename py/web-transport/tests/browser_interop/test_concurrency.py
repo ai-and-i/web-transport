@@ -9,6 +9,7 @@ import pytest
 
 import web_transport
 
+from ._compat import TaskGroup
 from .conftest import _webtransport_connect_js
 
 if TYPE_CHECKING:
@@ -43,11 +44,11 @@ async def test_concurrent_bidi_and_uni_streams(
                         data = await recv.read()
                         uni_received.append(data)
 
-                async with asyncio.TaskGroup() as inner_tg:
+                async with TaskGroup() as inner_tg:
                     inner_tg.create_task(handle_bidi_streams())
                     inner_tg.create_task(handle_uni_streams())
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -100,12 +101,12 @@ async def test_streams_and_datagrams_simultaneously(
                     dgram = await session.receive_datagram()
                     session.send_datagram(dgram)
 
-                async with asyncio.TaskGroup() as inner_tg:
+                async with TaskGroup() as inner_tg:
                     inner_tg.create_task(echo_stream())
                     inner_tg.create_task(echo_datagram())
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js(
                 port,
@@ -154,7 +155,7 @@ async def test_many_streams(start_server: ServerFactory, run_js: RunJS) -> None:
                         await send.write(data)
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -198,7 +199,7 @@ async def test_large_concurrent_transfers(
                         await send.write(data)
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -244,7 +245,7 @@ async def test_rapid_open_close_streams(
                     ):
                         pass
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -284,7 +285,7 @@ async def test_sequential_sessions_same_server(
                     await session.wait_closed()
                     session_count += 1
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             results = []
             for i in range(3):
@@ -333,7 +334,7 @@ async def test_interleaved_stream_and_datagram(
                     await send2.write(data2)
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -391,7 +392,7 @@ async def test_rapid_stream_creation(
                         await send.write(data)
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -435,7 +436,7 @@ async def test_server_close_while_client_creating_streams(
                 await asyncio.sleep(0.1)
                 session.close(99, "closing")
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js(
                 port,
@@ -498,14 +499,14 @@ async def test_bidirectional_open(start_server: ServerFactory, run_js: RunJS) ->
                             data = await recv.read()
                             await send.write(data)
 
-                async with asyncio.TaskGroup() as inner_tg:
+                async with TaskGroup() as inner_tg:
                     for i in range(n):
                         inner_tg.create_task(server_open(i))
                     inner_tg.create_task(server_accept())
 
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js(
                 port,
@@ -567,7 +568,7 @@ async def test_multiple_concurrent_sessions(
                     await session.wait_closed()
 
         setup = _webtransport_connect_js(port, hash_b64)
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js_raw(f"""
                 {setup}

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import TYPE_CHECKING, Any
 
 import pytest
+
+from ._compat import TaskGroup
 
 if TYPE_CHECKING:
     from .conftest import RunJS, ServerFactory
@@ -29,7 +30,7 @@ async def test_uni_browser_to_server(
                 recv = await session.accept_uni()
                 received = await recv.read()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -61,7 +62,7 @@ async def test_uni_server_to_browser(
                     await send.write(b"from server uni")
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -95,7 +96,7 @@ async def test_uni_browser_to_server_large_payload(
                 data = await recv.read()
                 received_len = len(data)
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -131,7 +132,7 @@ async def test_uni_multiple_browser_to_server(
                     received.append(data)
                     await recv.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -166,7 +167,7 @@ async def test_uni_multiple_server_to_browser(
                         await send.write(f"srv-{i}".encode())
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -204,7 +205,7 @@ async def test_uni_browser_to_server_binary(
                 recv = await session.accept_uni()
                 received = await recv.read()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -238,7 +239,7 @@ async def test_uni_server_to_browser_binary(
                     await send.write(bytes(range(256)))
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -273,7 +274,7 @@ async def test_uni_server_to_browser_large_payload(
                     await send.write(data)
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js(
                 port,

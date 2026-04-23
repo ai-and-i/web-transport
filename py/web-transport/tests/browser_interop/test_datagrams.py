@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
 import web_transport
+
+from ._compat import TaskGroup
 
 if TYPE_CHECKING:
     from .conftest import RunJS, ServerFactory
@@ -28,7 +29,7 @@ async def test_datagram_echo_text(start_server: ServerFactory, run_js: RunJS) ->
                 session.send_datagram(dgram)
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -61,7 +62,7 @@ async def test_datagram_echo_binary(start_server: ServerFactory, run_js: RunJS) 
                 session.send_datagram(dgram)
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -98,7 +99,7 @@ async def test_datagram_server_initiates(
                 session.send_datagram(b"server-first")
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -134,7 +135,7 @@ async def test_datagram_multiple_roundtrips(
                     session.send_datagram(dgram)
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -176,7 +177,7 @@ async def test_datagram_rapid_burst(start_server: ServerFactory, run_js: RunJS) 
                 except web_transport.SessionClosed:
                     pass
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -213,7 +214,7 @@ async def test_datagram_max_size_property(
             async with session:
                 max_size = session.max_datagram_size
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(port, hash_b64, "await transport.closed; return true;")
 
@@ -239,7 +240,7 @@ async def test_datagram_oversized_raises(
                 except web_transport.DatagramTooLargeError as e:
                     error = e
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(port, hash_b64, "await transport.closed; return true;")
 
@@ -266,7 +267,7 @@ async def test_datagram_at_exact_max_size(
                 session.send_datagram(b"\xab" * max_size)
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js(
                 port,

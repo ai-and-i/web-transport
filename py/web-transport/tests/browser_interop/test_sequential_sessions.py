@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 import web_transport
+from ._compat import TaskGroup
 from .conftest import _webtransport_connect_js
 
 if TYPE_CHECKING:
@@ -87,7 +88,7 @@ async def test_sequential_browser_sessions_bidi_echo(
                 await _echo_session(session)
                 session_count += 1
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             results = []
             for i in range(3):
@@ -119,7 +120,7 @@ async def test_sequential_browser_sessions_mixed_types(
                 session = await request.accept()
                 await _echo_session(session)
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
 
             # Session 1: bidi
@@ -186,7 +187,7 @@ async def test_server_survives_browser_abort(
             await _echo_session(session)
 
         setup = _webtransport_connect_js(port, hash_b64)
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
 
             # Misbehaving browser: write partial, close abruptly
@@ -235,7 +236,7 @@ async def test_server_survives_browser_stream_reset(
             session = await request.accept()
             await _echo_session(session)
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
 
             # Misbehaving browser: reset stream
@@ -283,7 +284,7 @@ async def test_server_survives_browser_idle_disconnect(
             session = await request.accept()
             await _echo_session(session)
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
 
             # Idle browser: connect and immediately close
@@ -325,7 +326,7 @@ async def test_server_survives_many_misbehaviors(
                 await _echo_session(session)
 
         setup = _webtransport_connect_js(port, hash_b64)
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
 
             # Bad 1: idle disconnect

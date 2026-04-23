@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from ._compat import TaskGroup
+
 if TYPE_CHECKING:
     from .conftest import RunJS, ServerFactory
 
@@ -41,7 +43,7 @@ async def test_concurrent_accept_bi_from_multiple_tasks(
                         await send.write(data)
                     completed += 1
 
-                async with asyncio.TaskGroup() as inner_tg:
+                async with TaskGroup() as inner_tg:
                     for i in range(n):
                         inner_tg.create_task(
                             asyncio.wait_for(accept_and_echo(i), timeout=5.0)
@@ -49,7 +51,7 @@ async def test_concurrent_accept_bi_from_multiple_tasks(
 
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -103,7 +105,7 @@ async def test_concurrent_accept_bi_and_uni_from_multiple_tasks(
                     await recv.read()
                     completed += 1
 
-                async with asyncio.TaskGroup() as inner_tg:
+                async with TaskGroup() as inner_tg:
                     for i in range(n):
                         inner_tg.create_task(
                             asyncio.wait_for(accept_bi_echo(i), timeout=5.0)
@@ -118,7 +120,7 @@ async def test_concurrent_accept_bi_and_uni_from_multiple_tasks(
                     await signal.write(b"ok")
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -180,7 +182,7 @@ async def test_concurrent_accept_uni_from_multiple_tasks(
                     data = await recv.read()
                     received.append(data)
 
-                async with asyncio.TaskGroup() as inner_tg:
+                async with TaskGroup() as inner_tg:
                     for i in range(n):
                         inner_tg.create_task(
                             asyncio.wait_for(accept_uni_read(i), timeout=5.0)
@@ -192,7 +194,7 @@ async def test_concurrent_accept_uni_from_multiple_tasks(
                     await signal.write(b"ok")
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,

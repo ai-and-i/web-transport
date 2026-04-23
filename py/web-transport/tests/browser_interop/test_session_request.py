@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
 import web_transport
+from ._compat import TaskGroup
 from .conftest import _webtransport_connect_js
 
 if TYPE_CHECKING:
@@ -32,7 +32,7 @@ async def test_request_url_matches_target(
             async with session:
                 pass
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(port, hash_b64, "await transport.closed; return true;")
 
@@ -57,7 +57,7 @@ async def test_request_url_with_path(
                 await session.wait_closed()
 
         setup = _webtransport_connect_js(port, hash_b64)
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js_raw(f"""
                 {setup}
@@ -92,7 +92,7 @@ async def test_accept_then_reject_raises(
                 session.close()
 
         setup = _webtransport_connect_js(port, hash_b64)
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js_raw(f"""
                 {setup}
@@ -127,7 +127,7 @@ async def test_reject_then_accept_raises(
                 error = e
 
         setup = _webtransport_connect_js(port, hash_b64)
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js_raw(f"""
                 {setup}
@@ -164,7 +164,7 @@ async def test_server_async_iterator(
                 break
             server.close()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -192,7 +192,7 @@ async def test_reject_with_default_status(
             await request.reject()  # no args — default 404
 
         setup = _webtransport_connect_js(port, hash_b64)
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js_raw(f"""
                 {setup}
@@ -226,7 +226,7 @@ async def test_request_url_with_query_params(
                 await session.wait_closed()
 
         setup = _webtransport_connect_js(port, hash_b64)
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js_raw(f"""
                 {setup}

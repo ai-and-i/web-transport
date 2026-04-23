@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 import web_transport
+from ._compat import TaskGroup
 from .conftest import _webtransport_connect_js
 
 if TYPE_CHECKING:
@@ -29,7 +30,7 @@ async def test_browser_connects_and_ready_resolves(
             async with session:
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -70,7 +71,7 @@ async def test_browser_close_with_code_and_reason(
             close_reason = session.close_reason
 
         setup = _webtransport_connect_js(port, hash_b64)
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js_raw(f"""
                 {setup}
@@ -103,7 +104,7 @@ async def test_browser_close_default_code(
             close_reason = session.close_reason
 
         setup = _webtransport_connect_js(port, hash_b64)
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js_raw(f"""
                 {setup}
@@ -134,7 +135,7 @@ async def test_server_close_with_code_and_reason(
                 session.close(42, "bye")
 
         setup = _webtransport_connect_js(port, hash_b64)
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js_raw(f"""
                 {setup}
@@ -166,7 +167,7 @@ async def test_server_close_default_code(
                 session.close()
 
         setup = _webtransport_connect_js(port, hash_b64)
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js_raw(f"""
                 {setup}
@@ -198,7 +199,7 @@ async def test_session_request_url(start_server: ServerFactory, run_js: RunJS) -
             async with session:
                 pass
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(port, hash_b64, "await transport.closed; return true;")
 
@@ -217,7 +218,7 @@ async def test_session_rejection_404(
             await request.reject(404)
 
         setup = _webtransport_connect_js(port, hash_b64)
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js_raw(f"""
                 {setup}
@@ -246,7 +247,7 @@ async def test_session_rejection_403(
             await request.reject(403)
 
         setup = _webtransport_connect_js(port, hash_b64)
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js_raw(f"""
                 {setup}
@@ -297,7 +298,7 @@ async def test_session_remote_address(
             async with session:
                 remote = session.remote_address
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(port, hash_b64, "await transport.closed; return true;")
 
@@ -318,7 +319,7 @@ async def test_session_rtt_positive(start_server: ServerFactory, run_js: RunJS) 
             async with session:
                 rtt = session.rtt
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(port, hash_b64, "await transport.closed; return true;")
 
@@ -340,7 +341,7 @@ async def test_session_max_datagram_size_positive(
             async with session:
                 max_size = session.max_datagram_size
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(port, hash_b64, "await transport.closed; return true;")
 
@@ -362,7 +363,7 @@ async def test_session_close_reason_none_while_open(
             async with session:
                 reason_while_open = session.close_reason
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(port, hash_b64, "await transport.closed; return true;")
 
@@ -384,7 +385,7 @@ async def test_session_close_reason_after_browser_close(
             await session.wait_closed()
             close_reason = session.close_reason
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -414,7 +415,7 @@ async def test_session_close_is_idempotent(
                 session.close()
                 session.close()  # Should not raise
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -440,7 +441,7 @@ async def test_session_context_manager_closes(
                 pass  # clean exit should close the session
 
         setup = _webtransport_connect_js(port, hash_b64)
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js_raw(f"""
                 {setup}
@@ -475,7 +476,7 @@ async def test_session_context_manager_closes_on_exception(
                 pass
 
         setup = _webtransport_connect_js(port, hash_b64)
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js_raw(f"""
                 {setup}
@@ -510,7 +511,7 @@ async def test_session_close_max_code(
             close_reason = session.close_reason
 
         setup = _webtransport_connect_js(port, hash_b64)
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js_raw(f"""
                 {setup}
@@ -541,7 +542,7 @@ async def test_session_wait_closed_blocks_until_browser_closes(
             wait_closed_done.set()
 
         setup = _webtransport_connect_js(port, hash_b64)
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js_raw(f"""
                 {setup}
@@ -578,7 +579,7 @@ async def test_open_uni_after_close_raises(
                 except web_transport.SessionClosedLocally as e:
                     error = e
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             try:
                 await run_js(port, hash_b64, "await transport.closed; return true;")
@@ -608,7 +609,7 @@ async def test_accept_bi_after_local_close_raises(
                 except web_transport.SessionClosedLocally as e:
                     error = e
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             try:
                 await run_js(port, hash_b64, "await transport.closed; return true;")
@@ -635,7 +636,7 @@ async def test_accept_uni_after_browser_close_raises(
             except web_transport.SessionClosed as e:
                 error = e
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -665,7 +666,7 @@ async def test_close_unicode_reason(
             close_reason = session.close_reason
 
         setup = _webtransport_connect_js(port, hash_b64)
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js_raw(f"""
                 {setup}
@@ -698,7 +699,7 @@ async def test_close_long_reason(
             close_reason = session.close_reason
 
         setup = _webtransport_connect_js(port, hash_b64)
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js_raw(f"""
                 {setup}

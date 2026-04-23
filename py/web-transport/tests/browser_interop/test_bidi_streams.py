@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import TYPE_CHECKING, Any
 
 import pytest
+
+from ._compat import TaskGroup
 
 if TYPE_CHECKING:
     from .conftest import RunJS, ServerFactory
@@ -28,7 +29,7 @@ async def test_bidi_echo_text(start_server: ServerFactory, run_js: RunJS) -> Non
                     await send.write(data)
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -61,7 +62,7 @@ async def test_bidi_echo_binary_all_byte_values(
                     await send.write(data)
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -97,7 +98,7 @@ async def test_bidi_echo_large_payload(
                 await session.wait_closed()
 
         size = 1024 * 1024  # 1 MB
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js(
                 port,
@@ -143,7 +144,7 @@ async def test_bidi_empty_stream(start_server: ServerFactory, run_js: RunJS) -> 
                 async with send:
                     received = await recv.read()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -180,7 +181,7 @@ async def test_bidi_server_opens_stream(
                     server_received = await recv.read()
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -217,7 +218,7 @@ async def test_bidi_multiple_sequential(
                         await send.write(data)
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -256,7 +257,7 @@ async def test_bidi_multiple_concurrent(
                         await send.write(data)
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -299,7 +300,7 @@ async def test_bidi_browser_writes_multiple_chunks(
                     await send.write(b"ok")
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -338,7 +339,7 @@ async def test_bidi_server_writes_multiple_chunks(
                     await send.write(b"chunk3")
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -373,7 +374,7 @@ async def test_bidi_half_close_then_read(
                     await send.write(b"got: " + data)
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -412,7 +413,7 @@ async def test_bidi_interleaved_request_response(
                     await send.write(b"pong2")
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -458,7 +459,7 @@ async def test_bidi_server_opens_multiple_streams(
                         await send.write(bytes([i]))
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -499,7 +500,7 @@ async def test_bidi_server_stream_priority(
                         await send.write(f"prio{i}".encode())
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,

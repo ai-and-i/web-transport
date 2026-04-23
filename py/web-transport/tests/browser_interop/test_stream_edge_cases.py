@@ -9,6 +9,8 @@ import pytest
 
 import web_transport
 
+from ._compat import TaskGroup, timeout
+
 if TYPE_CHECKING:
     from .conftest import RunJS, ServerFactory
 
@@ -34,7 +36,7 @@ async def test_browser_writer_close_signals_eof(
                     received = await recv.read()
                     eof_bytes = await recv.read()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -68,7 +70,7 @@ async def test_server_finish_signals_eof_to_browser(
                 await recv.read()  # wait for browser to close
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -107,7 +109,7 @@ async def test_browser_abort_with_code(
                     except web_transport.StreamClosedByPeer as e:
                         error = e
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -145,7 +147,7 @@ async def test_server_reset_causes_browser_read_error(
                 await recv.read()  # wait for browser close
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js(
                 port,
@@ -184,7 +186,7 @@ async def test_browser_cancel_recv_with_code(
             async with session:
                 send, recv = await session.accept_bi()
                 try:
-                    async with asyncio.timeout(5):
+                    async with timeout(5):
                         while True:
                             await send.write(b"x" * 65536)
                 except web_transport.StreamClosedByPeer as e:
@@ -194,7 +196,7 @@ async def test_browser_cancel_recv_with_code(
                 except web_transport.SessionClosed:
                     pass
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -234,7 +236,7 @@ async def test_server_stop_causes_browser_write_error(
                     await send.write(b"initial")
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js(
                 port,
@@ -274,7 +276,7 @@ async def test_recv_read_partial(start_server: ServerFactory, run_js: RunJS) -> 
                 async with send:
                     chunk = await recv.read(10)
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -309,7 +311,7 @@ async def test_recv_readexactly_success(
                 async with send:
                     data = await recv.readexactly(10)
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -346,7 +348,7 @@ async def test_recv_readexactly_incomplete(
                     except web_transport.StreamIncompleteReadError as e:
                         error = e
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -387,7 +389,7 @@ async def test_recv_read_with_limit_exceeded(
                 session.close(0, "")
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -424,7 +426,7 @@ async def test_recv_read_with_limit_not_exceeded(
                 async with send:
                     data = await recv.read(limit=100)
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -456,7 +458,7 @@ async def test_recv_async_iteration(start_server: ServerFactory, run_js: RunJS) 
                     async for chunk in recv:
                         chunks.append(chunk)
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -495,7 +497,7 @@ async def test_send_context_manager_finishes_on_clean_exit(
                 await recv.read()  # wait for browser close
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -533,7 +535,7 @@ async def test_send_context_manager_resets_on_exception(
                 await recv.read()  # wait for browser close
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js(
                 port,
@@ -580,7 +582,7 @@ async def test_recv_context_manager_stops_if_not_eof(
                     await send.write(b"initial")
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js(
                 port,
@@ -626,7 +628,7 @@ async def test_write_some_returns_count(
                     written = await send.write_some(b"hello world")
                     await recv.read()  # wait for browser close
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -672,7 +674,7 @@ async def test_read_after_eof_returns_empty(
                     data3 = await recv.read()
                     reads.append(data3)
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -706,7 +708,7 @@ async def test_empty_write_and_finish(
                 await send.finish()
                 await recv.read()  # wait for browser to close
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result = await run_js(
                 port,
@@ -741,7 +743,7 @@ async def test_read_all_to_eof_default(
                 async with send:
                     received = await recv.read()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -781,7 +783,7 @@ async def test_read_n_returns_less_at_eof(
                     if rest:
                         all_received += rest
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -822,7 +824,7 @@ async def test_readexactly_after_eof(
                     except web_transport.StreamIncompleteReadError as e:
                         error = e
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -860,7 +862,7 @@ async def test_readexactly_zero_after_eof(
                     # readexactly(0) should succeed even after EOF
                     result_bytes = await recv.readexactly(0)
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -899,7 +901,7 @@ async def test_recv_context_manager_stops_on_exception(
                     await send.write(b"initial")
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js(
                 port,
@@ -947,7 +949,7 @@ async def test_recv_context_manager_no_stop_at_eof(
                         received = await recv.read()
                     # If no STOP_SENDING was sent, this is a clean exit
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -988,7 +990,7 @@ async def test_stream_reset_code_zero(
                     pass
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js(
                 port,
@@ -1037,7 +1039,7 @@ async def test_stream_reset_code_255(
                     pass
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js(
                 port,
@@ -1088,7 +1090,7 @@ async def test_stream_stop_code_zero(
                 await send2.finish()
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -1131,7 +1133,7 @@ async def test_stream_stop_code_255(start_server: ServerFactory, run_js: RunJS) 
                 await send2.finish()
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -1200,7 +1202,7 @@ async def test_stream_reset_isolation(
 
                 await asyncio.gather(*tasks, return_exceptions=True)
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js(
                 port,

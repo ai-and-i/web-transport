@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 import web_transport
+from ._compat import TaskGroup
 from .conftest import _webtransport_connect_js
 
 if TYPE_CHECKING:
@@ -34,7 +35,7 @@ async def test_server_close_during_browser_read(
                 # Close session abruptly — don't finish the stream
                 session.close(1, "abort")
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js(
                 port,
@@ -89,7 +90,7 @@ async def test_browser_close_during_server_read(
                 ) as e:
                     error = e
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -133,7 +134,7 @@ async def test_browser_close_during_server_write(
                 ) as e:
                     error = e
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -172,7 +173,7 @@ async def test_open_bi_after_session_close_raises(
                 except web_transport.SessionClosedLocally as e:
                     error = e
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             try:
                 await run_js(port, hash_b64, "await transport.closed; return true;")
@@ -199,7 +200,7 @@ async def test_accept_bi_after_browser_close_raises(
             except web_transport.SessionClosed as e:
                 error = e
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -233,7 +234,7 @@ async def test_send_datagram_after_close_raises(
                 except web_transport.SessionClosed as e:
                     error = e
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             try:
                 await run_js(port, hash_b64, "await transport.closed; return true;")
@@ -260,7 +261,7 @@ async def test_receive_datagram_after_browser_close_raises(
             except web_transport.SessionClosed as e:
                 error = e
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -287,7 +288,7 @@ async def test_server_close_all_connections(
             server.close()
 
         setup = _webtransport_connect_js(port, hash_b64)
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js_raw(f"""
                 {setup}
@@ -328,7 +329,7 @@ async def test_double_reset_raises(start_server: ServerFactory, run_js: RunJS) -
                 except web_transport.StreamClosedLocally as e:
                     error = e
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -364,7 +365,7 @@ async def test_double_stop_raises(start_server: ServerFactory, run_js: RunJS) ->
                     except web_transport.StreamClosedLocally as e:
                         error = e
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -405,7 +406,7 @@ async def test_write_after_reset_raises(
                 except web_transport.StreamClosedLocally as e:
                     error = e
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -443,7 +444,7 @@ async def test_write_after_finish_raises(
                     error = e
                 await recv.read()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -483,7 +484,7 @@ async def test_read_after_stop_raises(
                     except web_transport.StreamClosedLocally as e:
                         error = e
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -523,7 +524,7 @@ async def test_double_finish_raises(start_server: ServerFactory, run_js: RunJS) 
                     error = e
                 await recv.read()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -571,7 +572,7 @@ async def test_browser_close_during_server_pending_read(
                         error = e
 
         setup = _webtransport_connect_js(port, hash_b64)
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js_raw(f"""
                 {setup}
@@ -614,7 +615,7 @@ async def test_browser_close_during_server_pending_write(
                     error = e
 
         setup = _webtransport_connect_js(port, hash_b64)
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js_raw(f"""
                 {setup}
@@ -650,7 +651,7 @@ async def test_uni_send_reset(start_server: ServerFactory, run_js: RunJS) -> Non
                 send.reset(7)
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js(
                 port,
@@ -695,7 +696,7 @@ async def test_uni_recv_stop(start_server: ServerFactory, run_js: RunJS) -> None
                 session.send_datagram(b"\x01")
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js(
                 port,
@@ -745,7 +746,7 @@ async def test_send_wait_closed_returns_stop_code(
                 stop_code = await asyncio.wait_for(send.wait_closed(), timeout=5.0)
                 await recv.read()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -785,7 +786,7 @@ async def test_send_finish_then_wait_closed(
                 result_code = await asyncio.wait_for(send.wait_closed(), timeout=5.0)
                 await recv.read()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -824,7 +825,7 @@ async def test_recv_wait_closed_returns_reset_code(
                     reset_code = await asyncio.wait_for(recv.wait_closed(), timeout=5.0)
                 await session.wait_closed()
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -865,7 +866,7 @@ async def test_recv_wait_closed_peer_finishes(
                         recv.wait_closed(), timeout=5.0
                     )
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             await run_js(
                 port,
@@ -902,7 +903,7 @@ async def test_server_close_interrupts_client_write(
                 await recv.read(1024)
                 session.close(0, "")
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js(
                 port,
@@ -941,7 +942,7 @@ async def test_server_close_interrupts_client_accept_bi(
                 await asyncio.sleep(0.1)
                 session.close(0, "")
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js(
                 port,
@@ -975,7 +976,7 @@ async def test_server_close_interrupts_client_accept_uni(
                 await asyncio.sleep(0.1)
                 session.close(0, "")
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             result: Any = await run_js(
                 port,
@@ -1024,7 +1025,7 @@ async def test_server_read_on_stream_after_session_close(
             ) as e:
                 error = e
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             try:
                 await run_js(
@@ -1071,7 +1072,7 @@ async def test_server_write_on_stream_after_session_close(
             ) as e:
                 error = e
 
-        async with asyncio.TaskGroup() as tg:
+        async with TaskGroup() as tg:
             tg.create_task(server_side())
             try:
                 await run_js(
